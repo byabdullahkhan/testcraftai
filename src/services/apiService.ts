@@ -582,43 +582,175 @@ export const apiService = {
     password: string;
     displayName?: string;
   }): Promise<UserProfile> {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to register account.');
+    const uname = cleanUsername(payload.username || '');
+    const pwd = (payload.password || '').trim();
+    if (!uname || uname.length < 3) {
+      throw new Error('Username must be at least 3 characters (letters, numbers, or underscores).');
     }
-    return data.user;
+    if (!pwd || pwd.length < 3) {
+      throw new Error('Password must be at least 3 characters.');
+    }
+
+    // Check local registry first
+    let localUsers: Record<string, UserProfile & { password?: string }> = {};
+    try {
+      const raw = localStorage.getItem(LOCAL_USERS_KEY);
+      if (raw) localUsers = JSON.parse(raw);
+    } catch {}
+
+    if (localUsers[uname]) {
+      throw new Error(`Username "@${uname}" is already taken. Please choose a different username.`);
+    }
+
+    // Try backend server first if available
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Failed to register account.');
+        }
+        if (data.user) {
+          localUsers[uname] = { ...data.user, password: pwd };
+          try {
+            localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
+          } catch {}
+          return data.user;
+        }
+      }
+    } catch (err: any) {
+      if (err.message && (err.message.includes('already taken') || err.message.includes('must be'))) {
+        throw err;
+      }
+    }
+
+    // Fallback for static hosting (GitHub Pages)
+    const now = new Date().toISOString();
+    const newUser: UserProfile & { password?: string } = {
+      uid: `usr_${uname}`,
+      username: uname,
+      password: pwd,
+      displayName: (payload.displayName || '').trim() || uname,
+      email: `${uname}@testcraft.local`,
+      role: 'instructor',
+      createdAt: now,
+      lastLoginAt: now,
+    };
+    localUsers[uname] = newUser;
+    try {
+      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
+    } catch {}
+
+    const { password: _, ...safeUser } = newUser;
+    return safeUser;
   },
 
   // Custom Auth: Sign In with Username & Password
   async signInUser(payload: { username: string; password: string }): Promise<UserProfile> {
-    const res = await fetch('/api/auth/signin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to sign in.');
+    const uname = cleanUsername(payload.username || '');
+    const pwd = (payload.password || '').trim();
+    if (!uname || !pwd) {
+      throw new Error('Please enter both username and password.');
     }
-    return data.user;
+
+    let localUsers: Record<string, UserProfile & { password?: string }> = {};
+    try {
+      const raw = localStorage.getItem(LOCAL_USERS_KEY);
+      if (raw) localUsers = JSON.parse(raw);
+    } catch {}
+
+    // Try backend server first if available
+    try {
+      const res = await fetch('/api/auth/signin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (res.ok && data.user) {
+          localUsers[uname] = { ...data.user, password: pwd };
+          try {
+            localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
+          } catch {}
+          return data.user;
+        }
+        if (res.status === 401) {
+          throw new Error(data.error || 'Incorrect password for this username. Please try again.');
+        }
+        if (!localUsers[uname]) {
+          throw new Error(
+            data.error ||
+              `Username "@${uname}" was not found. If you are visiting for the first time, please click "Get Started" to create your account.`
+          );
+        }
+      }
+    } catch (err: any) {
+      if (
+        err.message &&
+        (err.message.includes('Incorrect password') || err.message.includes('was not found'))
+      ) {
+        throw err;
+      }
+    }
+
+    // Fallback for static hosting (GitHub Pages)
+    const existing = localUsers[uname];
+    if (!existing) {
+      throw new Error(
+        `Username "@${uname}" was not found. If you are visiting for the first time, please click "Get Started" to create your account.`
+      );
+    }
+    if (existing.password !== pwd) {
+      throw new Error('Incorrect password for this username. Please try again.');
+    }
+
+    existing.lastLoginAt = new Date().toISOString();
+    localUsers[uname] = existing;
+    try {
+      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
+    } catch {}
+
+    const { password: _, ...safeUser } = existing;
+    return safeUser;
   },
 
   // Custom Auth: Check Username availability
   async checkUsername(username: string): Promise<{ available: boolean; message: string }> {
+    const uname = cleanUsername(username || '');
+    if (!uname || uname.length < 3) {
+      return { available: false, message: 'Username must be at least 3 characters.' };
+    }
+
+    try {
+      const raw = localStorage.getItem(LOCAL_USERS_KEY);
+      if (raw) {
+        const localUsers = JSON.parse(raw);
+        if (localUsers && localUsers[uname]) {
+          return {
+            available: false,
+            message: `Username "@${uname}" is already taken. Please choose a different username.`,
+          };
+        }
+      }
+    } catch {}
+
     try {
       const res = await fetch(
-        `/api/auth/check-username?username=${encodeURIComponent(username)}`
+        `/api/auth/check-username?username=${encodeURIComponent(uname)}`
       );
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         return await res.json();
       }
     } catch {}
-    return { available: true, message: '' };
+    return { available: true, message: `Username "@${uname}" is available!` };
   },
 
   // Delete test
