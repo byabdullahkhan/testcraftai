@@ -10,6 +10,9 @@ const LOCAL_TESTS_KEY = 'testcraft_local_tests_v7_clean';
 const LOCAL_SUBMISSIONS_KEY_PREFIX = 'testcraft_local_submissions_v7_';
 const LOCAL_USERS_KEY = 'testcraft_local_users_v7_clean';
 
+const isStaticHost = (): boolean =>
+  typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+
 function slugifyTitle(title: string): string {
   if (!title) return 'test';
   return (
@@ -76,31 +79,33 @@ export const apiService = {
   // Get all tests for the signed-in user (strictly isolated by username/uid)
   async getTests(userUid?: string, username?: string): Promise<any[]> {
     const normUname = username ? username.toLowerCase().trim().replace(/^@/, '') : '';
-    try {
-      const url = normUname
-        ? `/api/tests?creatorUsername=${encodeURIComponent(normUname)}`
-        : userUid
-        ? `/api/tests?creatorUid=${encodeURIComponent(userUid)}`
-        : '/api/tests';
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && Array.isArray(data.tests)) {
-          if (normUname) {
-            return data.tests.filter(
-              (t: any) =>
-                t.creatorUsername &&
-                t.creatorUsername.toLowerCase().trim().replace(/^@/, '') === normUname
-            );
+    if (!isStaticHost()) {
+      try {
+        const url = normUname
+          ? `/api/tests?creatorUsername=${encodeURIComponent(normUname)}`
+          : userUid
+          ? `/api/tests?creatorUid=${encodeURIComponent(userUid)}`
+          : '/api/tests';
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && Array.isArray(data.tests)) {
+            if (normUname) {
+              return data.tests.filter(
+                (t: any) =>
+                  t.creatorUsername &&
+                  t.creatorUsername.toLowerCase().trim().replace(/^@/, '') === normUname
+              );
+            }
+            if (userUid) {
+              return data.tests.filter((t: any) => t.creatorUid === userUid);
+            }
+            return [];
           }
-          if (userUid) {
-            return data.tests.filter((t: any) => t.creatorUid === userUid);
-          }
-          return [];
         }
+      } catch {
+        // Offline fallback
       }
-    } catch {
-      // Offline fallback
     }
 
     let localTests = getStoredLocalTests();
@@ -135,17 +140,19 @@ export const apiService = {
   // Get full test by ID or slug (for Teacher view / "See the Test")
   async getTestById(testIdOrSlug: string): Promise<Test | null> {
     const cleanId = decodeURIComponent(testIdOrSlug).trim();
-    try {
-      const res = await fetch(`/api/tests/${encodeURIComponent(cleanId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.test) {
-          saveLocalTest(data.test);
-          return data.test;
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(`/api/tests/${encodeURIComponent(cleanId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.test) {
+            saveLocalTest(data.test);
+            return data.test;
+          }
         }
+      } catch {
+        // Offline fallback
       }
-    } catch {
-      // Offline fallback
     }
 
     const localTests = getStoredLocalTests();
@@ -171,21 +178,23 @@ export const apiService = {
         slugifyTitle(t.title) === targetSlug
     );
 
-    try {
-      const res = await fetch(`/api/tests/${encodeURIComponent(cleanId)}/take`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.test) return data.test;
-      } else if (res.status === 404 && localMatch) {
-        await fetch('/api/tests/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ test: localMatch }),
-        }).catch(() => {});
-        return localMatch;
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(`/api/tests/${encodeURIComponent(cleanId)}/take`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.test) return data.test;
+        } else if (res.status === 404 && localMatch) {
+          await fetch('/api/tests/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ test: localMatch }),
+          }).catch(() => {});
+          return localMatch;
+        }
+      } catch {
+        // Offline fallback
       }
-    } catch {
-      // Offline fallback
     }
 
     if (localMatch) {
@@ -219,21 +228,23 @@ export const apiService = {
       createdAt: new Date().toISOString(),
     };
 
-    try {
-      const res = await fetch('/api/tests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newTest),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.test) {
-          saveLocalTest(data.test);
-          return data.test;
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch('/api/tests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newTest),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.test) {
+            saveLocalTest(data.test);
+            return data.test;
+          }
         }
+      } catch {
+        // Offline fallback
       }
-    } catch {
-      // Offline fallback
     }
 
     saveLocalTest(newTest);
@@ -246,17 +257,19 @@ export const apiService = {
     name: string,
     rollNo: string
   ): Promise<{ hasAttempted: boolean; submissionId?: string; submittedAt?: string }> {
-    try {
-      const res = await fetch(
-        `/api/tests/${encodeURIComponent(testId)}/check-student?name=${encodeURIComponent(
-          name
-        )}&rollNo=${encodeURIComponent(rollNo)}`
-      );
-      if (res.ok) {
-        return await res.json();
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(
+          `/api/tests/${encodeURIComponent(testId)}/check-student?name=${encodeURIComponent(
+            name
+          )}&rollNo=${encodeURIComponent(rollNo)}`
+        );
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch {
+        // Fallback to local
       }
-    } catch {
-      // Fallback to local
     }
 
     const subs = getStoredSubmissions(testId);
@@ -280,26 +293,28 @@ export const apiService = {
 
   // Submit student test and grade
   async submitTest(testId: string, payload: any): Promise<TestSubmission> {
-    try {
-      const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.submission) {
-          saveLocalSubmission(testId, data.submission);
-          return data.submission;
+        if (res.ok) {
+          const data = await res.json();
+          if (data.submission) {
+            saveLocalSubmission(testId, data.submission);
+            return data.submission;
+          }
+        } else if (res.status === 409) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'You have already submitted this test.');
         }
-      } else if (res.status === 409) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'You have already submitted this test.');
-      }
-    } catch (err: any) {
-      if (err.message && err.message.includes('already submitted')) {
-        throw err;
+      } catch (err: any) {
+        if (err.message && err.message.includes('already submitted')) {
+          throw err;
+        }
       }
     }
 
@@ -543,28 +558,32 @@ export const apiService = {
 
   // Get submissions for a test
   async getSubmissions(testId: string): Promise<TestSubmission[]> {
-    try {
-      const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/submissions`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.submissions) return data.submissions;
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/submissions`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.submissions) return data.submissions;
+        }
+      } catch {
+        // Offline fallback
       }
-    } catch {
-      // Offline fallback
     }
     return getStoredSubmissions(testId);
   },
 
   // Get prior submission by ID
   async getSubmissionById(submissionId: string): Promise<TestSubmission | null> {
-    try {
-      const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.submission) return data.submission;
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(`/api/submissions/${encodeURIComponent(submissionId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.submission) return data.submission;
+        }
+      } catch {
+        // Offline fallback
       }
-    } catch {
-      // Offline fallback
     }
 
     const localTests = getStoredLocalTests();
@@ -603,29 +622,31 @@ export const apiService = {
     }
 
     // Try backend server first if available
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Failed to register account.');
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Failed to register account.');
+          }
+          if (data.user) {
+            localUsers[uname] = { ...data.user, password: pwd };
+            try {
+              localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
+            } catch {}
+            return data.user;
+          }
         }
-        if (data.user) {
-          localUsers[uname] = { ...data.user, password: pwd };
-          try {
-            localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
-          } catch {}
-          return data.user;
+      } catch (err: any) {
+        if (err.message && (err.message.includes('already taken') || err.message.includes('must be'))) {
+          throw err;
         }
-      }
-    } catch (err: any) {
-      if (err.message && (err.message.includes('already taken') || err.message.includes('must be'))) {
-        throw err;
       }
     }
 
@@ -665,38 +686,40 @@ export const apiService = {
     } catch {}
 
     // Try backend server first if available
-    try {
-      const res = await fetch('/api/auth/signin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const data = await res.json();
-        if (res.ok && data.user) {
-          localUsers[uname] = { ...data.user, password: pwd };
-          try {
-            localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
-          } catch {}
-          return data.user;
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch('/api/auth/signin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (res.ok && data.user) {
+            localUsers[uname] = { ...data.user, password: pwd };
+            try {
+              localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(localUsers));
+            } catch {}
+            return data.user;
+          }
+          if (res.status === 401) {
+            throw new Error(data.error || 'Incorrect password for this username. Please try again.');
+          }
+          if (!localUsers[uname]) {
+            throw new Error(
+              data.error ||
+                `Username "@${uname}" was not found. If you are visiting for the first time, please click "Get Started" to create your account.`
+            );
+          }
         }
-        if (res.status === 401) {
-          throw new Error(data.error || 'Incorrect password for this username. Please try again.');
+      } catch (err: any) {
+        if (
+          err.message &&
+          (err.message.includes('Incorrect password') || err.message.includes('was not found'))
+        ) {
+          throw err;
         }
-        if (!localUsers[uname]) {
-          throw new Error(
-            data.error ||
-              `Username "@${uname}" was not found. If you are visiting for the first time, please click "Get Started" to create your account.`
-          );
-        }
-      }
-    } catch (err: any) {
-      if (
-        err.message &&
-        (err.message.includes('Incorrect password') || err.message.includes('was not found'))
-      ) {
-        throw err;
       }
     }
 
@@ -741,15 +764,17 @@ export const apiService = {
       }
     } catch {}
 
-    try {
-      const res = await fetch(
-        `/api/auth/check-username?username=${encodeURIComponent(uname)}`
-      );
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && contentType.includes('application/json')) {
-        return await res.json();
-      }
-    } catch {}
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(
+          `/api/auth/check-username?username=${encodeURIComponent(uname)}`
+        );
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          return await res.json();
+        }
+      } catch {}
+    }
     return { available: true, message: `Username "@${uname}" is available!` };
   },
 
@@ -759,13 +784,16 @@ export const apiService = {
     localStorage.setItem(LOCAL_TESTS_KEY, JSON.stringify(local));
     localStorage.removeItem(`${LOCAL_SUBMISSIONS_KEY_PREFIX}${testId}`);
 
-    try {
-      const res = await fetch(`/api/tests/${encodeURIComponent(testId)}`, {
-        method: 'DELETE',
-      });
-      return res.ok;
-    } catch {
-      return true;
+    if (!isStaticHost()) {
+      try {
+        const res = await fetch(`/api/tests/${encodeURIComponent(testId)}`, {
+          method: 'DELETE',
+        });
+        return res.ok;
+      } catch {
+        return true;
+      }
     }
+    return true;
   },
 };

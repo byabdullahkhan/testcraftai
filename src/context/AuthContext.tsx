@@ -151,17 +151,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUserProfile(updatedProfile);
     localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(updatedProfile));
 
-    try {
-      await fetch('/api/auth/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: cleanUname,
-          displayName: cleanName,
-        }),
-      });
-    } catch (e) {
-      console.warn('Profile update warning:', e);
+    if (!window.location.hostname.includes('github.io')) {
+      try {
+        await fetch('/api/auth/profile', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: cleanUname,
+            displayName: cleanName,
+          }),
+        });
+      } catch (e) {
+        console.warn('Profile update warning:', e);
+      }
     }
   };
 
