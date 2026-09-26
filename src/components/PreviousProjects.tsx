@@ -19,10 +19,12 @@ import {
   LogIn,
   ChevronRight,
   Edit3,
+  RefreshCw,
 } from 'lucide-react';
 import { Test, TestSubmission, Question, QuestionType } from '../types';
 import { getStudentShareUrl } from '../utils/urlHelper';
 import { apiService } from '../services/apiService';
+import { subscribeToLiveSubmissions } from '../utils/cloudSync';
 import { useAuth } from '../context/AuthContext';
 import { downloadSubmissionAsImage } from '../utils/downloadReportImage';
 
@@ -100,6 +102,10 @@ export const PreviousProjects: React.FC<PreviousProjectsProps> = ({
         );
         setTests(allTests);
         setLoadingTests(false);
+        // Pre-warm cloud submissions in background for all user projects
+        allTests.forEach(t => {
+          apiService.getSubmissions(t.id, t.title).catch(() => {});
+        });
       })
       .catch(err => {
         console.error(err);
@@ -111,7 +117,23 @@ export const PreviousProjects: React.FC<PreviousProjectsProps> = ({
     fetchUserProjects();
   }, [user]);
 
-  // Fetch submissions when a project is opened
+  const refreshSubmissions = (silent = false) => {
+    if (!selectedTestId) return;
+    if (!silent) setLoadingSubmissions(true);
+    const currentTest = tests.find(t => t.id === selectedTestId);
+    apiService
+      .getSubmissions(selectedTestId, currentTest?.title)
+      .then(subs => {
+        setSubmissions(subs || []);
+        if (!silent) setLoadingSubmissions(false);
+      })
+      .catch(err => {
+        console.error(err);
+        if (!silent) setLoadingSubmissions(false);
+      });
+  };
+
+  // Fetch and live-sync submissions when a project is opened
   useEffect(() => {
     if (!selectedTestId) {
       setSubmissions([]);
@@ -119,18 +141,41 @@ export const PreviousProjects: React.FC<PreviousProjectsProps> = ({
       return;
     }
 
-    setLoadingSubmissions(true);
-    apiService
-      .getSubmissions(selectedTestId)
-      .then(subs => {
-        setSubmissions(subs || []);
-        setLoadingSubmissions(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setLoadingSubmissions(false);
-      });
-  }, [selectedTestId]);
+    const currentTest = tests.find(t => t.id === selectedTestId);
+    refreshSubmissions(false);
+
+    const unsubscribe = subscribeToLiveSubmissions(
+      selectedTestId,
+      currentTest?.title,
+      newSub => {
+        setSubmissions(prev => {
+          if (prev.some(s => s.id === newSub.id)) return prev;
+          return [newSub, ...prev];
+        });
+        refreshSubmissions(true);
+      }
+    );
+
+    const pollInterval = setInterval(() => {
+      refreshSubmissions(true);
+    }, 4000);
+
+    const handleFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refreshSubmissions(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    return () => {
+      unsubscribe();
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    };
+  }, [selectedTestId, tests.length]);
 
   const handleCopyLink = (testOrId: TestSummary | Test | string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -535,7 +580,7 @@ export const PreviousProjects: React.FC<PreviousProjectsProps> = ({
 
           {/* Student Report Section (Behind Test Link) */}
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between gap-4 mb-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
               <div>
                 <h3 className="text-lg font-extrabold text-slate-900 font-display">
                   Student Reports ({submissions.length})
@@ -545,16 +590,30 @@ export const PreviousProjects: React.FC<PreviousProjectsProps> = ({
                 </p>
               </div>
 
-              {selectedSubmission && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedSubmission(null)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Back to Student List</span>
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {!selectedSubmission && (
+                  <button
+                    type="button"
+                    onClick={() => refreshSubmissions(false)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                    title="Sync latest student reports from all devices"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingSubmissions ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                )}
+
+                {selectedSubmission && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSubmission(null)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Student List</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {loadingSubmissions ? (

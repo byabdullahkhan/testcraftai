@@ -8,6 +8,19 @@ import { Test, TestSubmission, QuestionEvaluation, TheoryFeedback, Question } fr
 const app = express();
 const PORT = 3000;
 
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, x-user-email, x-admin-username, x-admin-email'
+  );
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 
 // Initialize Gemini SDK with safety check
@@ -678,7 +691,7 @@ app.post('/api/activities/log', (req, res) => {
     description: description || '',
     userEmail,
     userName,
-    username: username ? cleanUsername(username) : (userEmail ? generateUsernameFromEmail(userEmail, userName) : undefined),
+    username: username ? cleanUsername(username) : (userEmail ? cleanUsername(userEmail.split('@')[0] || userName || 'user') : undefined),
     userPhoto,
     testId,
     testTitle,
@@ -1024,7 +1037,23 @@ app.get('/api/tests/:id/check-student', (req, res) => {
 // 6. Submit student test and perform automatic + AI grading
 app.post('/api/tests/:id/submit', async (req, res) => {
   const { id } = req.params;
-  const test = findTestByIdOrSlug(id);
+  let test = findTestByIdOrSlug(id);
+
+  if (!test && req.body && req.body.test && Array.isArray(req.body.test.questions)) {
+    const importedTest: Test = req.body.test;
+    if (!importedTest.slug) {
+      importedTest.slug = slugifyTitle(importedTest.title || importedTest.id || id);
+    }
+    if (!importedTest.id) {
+      importedTest.id = importedTest.slug;
+    }
+    testsMap.set(importedTest.id, importedTest);
+    if (!submissionsMap.has(importedTest.id)) {
+      submissionsMap.set(importedTest.id, []);
+    }
+    persistData();
+    test = importedTest;
+  }
 
   if (!test) {
     return res.status(404).json({ error: 'Test not found' });
@@ -1266,13 +1295,66 @@ app.post('/api/tests/:id/submit', async (req, res) => {
 app.get('/api/tests/:id/submissions', (req, res) => {
   const { id } = req.params;
   const test = findTestByIdOrSlug(id);
+  const targetSlug = slugifyTitle(decodeURIComponent(id));
 
-  if (!test) {
-    return res.status(404).json({ error: 'Test not found' });
+  const combinedMap = new Map<string, TestSubmission>();
+
+  if (test) {
+    const directSubs = submissionsMap.get(test.id) || [];
+    directSubs.forEach(s => combinedMap.set(s.id, s));
   }
 
-  const submissions = submissionsMap.get(test.id) || [];
-  res.json({ submissions });
+  const byRawId = submissionsMap.get(id) || submissionsMap.get(targetSlug) || [];
+  byRawId.forEach(s => combinedMap.set(s.id, s));
+
+  for (const [key, subsList] of submissionsMap.entries()) {
+    if (slugifyTitle(key) === targetSlug || (test && slugifyTitle(key) === slugifyTitle(test.title))) {
+      subsList.forEach(s => combinedMap.set(s.id, s));
+    } else {
+      subsList.forEach(s => {
+        if (
+          slugifyTitle(s.testId || '') === targetSlug ||
+          slugifyTitle(s.testTitle || '') === targetSlug ||
+          (test && slugifyTitle(s.testTitle || '') === slugifyTitle(test.title))
+        ) {
+          combinedMap.set(s.id, s);
+        }
+      });
+    }
+  }
+
+  res.json({ submissions: Array.from(combinedMap.values()) });
+});
+
+// Sync a client-graded or cloud-fetched submission to the server
+app.post('/api/submissions/sync', (req, res) => {
+  const { testId, submission, test } = req.body;
+  if (!submission || !submission.id || !submission.studentName) {
+    return res.status(400).json({ error: 'Invalid submission payload' });
+  }
+
+  if (test && test.id && Array.isArray(test.questions) && !testsMap.has(test.id)) {
+    testsMap.set(test.id, test);
+  }
+
+  const matchedTest = findTestByIdOrSlug(testId || submission.testId || submission.testTitle || '');
+  const targetKey = matchedTest ? matchedTest.id : slugifyTitle(testId || submission.testId || 'test');
+
+  const existing = submissionsMap.get(targetKey) || [];
+  const alreadyExists = existing.some(
+    s =>
+      s.id === submission.id ||
+      (s.studentName.trim().toLowerCase() === submission.studentName.trim().toLowerCase() &&
+        slugifyTitle(s.testId || '') === slugifyTitle(submission.testId || ''))
+  );
+
+  if (!alreadyExists) {
+    existing.push(submission);
+    submissionsMap.set(targetKey, existing);
+    persistData();
+  }
+
+  res.json({ success: true, submissionsCount: existing.length });
 });
 
 // 8. Get individual submission report by ID

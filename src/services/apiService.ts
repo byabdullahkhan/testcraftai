@@ -6,6 +6,11 @@ import {
   cleanUsername,
 } from '../types';
 import { extractAndSyncTestFromUrl } from '../utils/urlHelper';
+import {
+  publishSubmissionToCloud,
+  fetchSubmissionsFromCloud,
+  doesSubmissionMatchTest,
+} from '../utils/cloudSync';
 
 const LOCAL_TESTS_KEY = 'testcraft_local_tests_v7_clean';
 const LOCAL_SUBMISSIONS_KEY_PREFIX = 'testcraft_local_submissions_v7_';
@@ -44,33 +49,122 @@ function getStoredLocalTests(): Test[] {
 function saveLocalTest(test: Test) {
   try {
     const existing = getStoredLocalTests();
-    const filtered = existing.filter(t => t.id !== test.id && t.slug !== test.slug);
-    filtered.unshift(test);
+    const prev = existing.find(
+      t =>
+        t.id === test.id ||
+        (t.slug && test.slug && t.slug === test.slug) ||
+        slugifyTitle(t.title) === slugifyTitle(test.title)
+    );
+    const merged: Test = prev
+      ? {
+          ...prev,
+          ...test,
+          id: prev.id || test.id,
+          slug: prev.slug || test.slug,
+          creatorUsername: test.creatorUsername || prev.creatorUsername,
+          creatorUid: test.creatorUid || prev.creatorUid,
+          creatorEmail: test.creatorEmail || prev.creatorEmail,
+          creatorName: test.creatorName || prev.creatorName,
+          questions:
+            Array.isArray(prev.questions) && prev.questions.length > 0
+              ? prev.questions
+              : test.questions,
+        }
+      : test;
+
+    const filtered = existing.filter(
+      t => t.id !== merged.id && (!merged.slug || t.slug !== merged.slug)
+    );
+    filtered.unshift(merged);
     localStorage.setItem(LOCAL_TESTS_KEY, JSON.stringify(filtered));
   } catch (e) {
     console.error('Error saving local test:', e);
   }
 }
 
-function getStoredSubmissions(testId: string): TestSubmission[] {
+function deduplicateSubmissions(list: TestSubmission[]): TestSubmission[] {
+  const map = new Map<string, TestSubmission>();
+  for (const sub of list) {
+    if (!sub || !sub.id) continue;
+    const normStudentKey = `${slugifyTitle(sub.testId || sub.testTitle || '')}__${(
+      sub.studentName || ''
+    )
+      .trim()
+      .toLowerCase()}`;
+    if (!map.has(sub.id) && !map.has(normStudentKey)) {
+      map.set(sub.id, sub);
+      map.set(normStudentKey, sub);
+    }
+  }
+  const unique = Array.from(new Set(map.values()));
+  unique.sort(
+    (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+  );
+  return unique;
+}
+
+function getStoredSubmissions(testId: string, testTitle?: string): TestSubmission[] {
+  const collected: TestSubmission[] = [];
   try {
-    const raw = localStorage.getItem(`${LOCAL_SUBMISSIONS_KEY_PREFIX}${testId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+    const keysToTry = new Set<string>([
+      `${LOCAL_SUBMISSIONS_KEY_PREFIX}${testId}`,
+      `${LOCAL_SUBMISSIONS_KEY_PREFIX}${slugifyTitle(testId)}`,
+    ]);
+    if (testTitle) {
+      keysToTry.add(`${LOCAL_SUBMISSIONS_KEY_PREFIX}${slugifyTitle(testTitle)}`);
+    }
+
+    for (const key of keysToTry) {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          collected.push(...parsed);
+        }
+      }
+    }
+
+    // Also scan any other submission keys in localStorage that match this testId or title
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(LOCAL_SUBMISSIONS_KEY_PREFIX) && !keysToTry.has(k)) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((s: TestSubmission) => {
+                if (doesSubmissionMatchTest(s, testId, testTitle)) {
+                  collected.push(s);
+                }
+              });
+            }
+          }
+        } catch {}
+      }
     }
   } catch (e) {
     console.error('Error reading local submissions:', e);
   }
-  return [];
+  return deduplicateSubmissions(collected);
 }
 
 function saveLocalSubmission(testId: string, submission: TestSubmission) {
   try {
-    const existing = getStoredSubmissions(testId);
-    const filtered = existing.filter(s => s.id !== submission.id);
-    filtered.push(submission);
-    localStorage.setItem(`${LOCAL_SUBMISSIONS_KEY_PREFIX}${testId}`, JSON.stringify(filtered));
+    const targetSlug = slugifyTitle(testId || submission.testId || submission.testTitle || 'test');
+    const existing = getStoredSubmissions(testId, submission.testTitle);
+    const updated = deduplicateSubmissions([submission, ...existing]);
+
+    localStorage.setItem(`${LOCAL_SUBMISSIONS_KEY_PREFIX}${targetSlug}`, JSON.stringify(updated));
+    if (testId && testId !== targetSlug) {
+      localStorage.setItem(`${LOCAL_SUBMISSIONS_KEY_PREFIX}${testId}`, JSON.stringify(updated));
+    }
+    if (submission.testId && submission.testId !== targetSlug && submission.testId !== testId) {
+      localStorage.setItem(
+        `${LOCAL_SUBMISSIONS_KEY_PREFIX}${submission.testId}`,
+        JSON.stringify(updated)
+      );
+    }
   } catch (e) {
     console.error('Error saving local submission:', e);
   }
@@ -121,6 +215,8 @@ export const apiService = {
   // Get all tests for the signed-in user (strictly isolated by username/uid)
   async getTests(userUid?: string, username?: string): Promise<any[]> {
     const normUname = username ? username.toLowerCase().trim().replace(/^@/, '') : '';
+    let serverTests: any[] = [];
+
     if (!isStaticHost()) {
       try {
         const url = normUname
@@ -132,22 +228,12 @@ export const apiService = {
         if (res.ok) {
           const data = await res.json();
           if (data && Array.isArray(data.tests)) {
-            data.tests.forEach((t: any) => {
+            serverTests = data.tests;
+            serverTests.forEach((t: any) => {
               if (t && Array.isArray(t.questions) && t.questions.length > 0) {
                 saveLocalTest(t as Test);
               }
             });
-            if (normUname) {
-              return data.tests.filter(
-                (t: any) =>
-                  t.creatorUsername &&
-                  t.creatorUsername.toLowerCase().trim().replace(/^@/, '') === normUname
-              );
-            }
-            if (userUid) {
-              return data.tests.filter((t: any) => t.creatorUid === userUid);
-            }
-            return [];
           }
         }
       } catch {
@@ -159,8 +245,9 @@ export const apiService = {
     if (normUname) {
       localTests = localTests.filter(
         t =>
-          t.creatorUsername &&
-          t.creatorUsername.toLowerCase().trim().replace(/^@/, '') === normUname
+          (t.creatorUsername &&
+            t.creatorUsername.toLowerCase().trim().replace(/^@/, '') === normUname) ||
+          (userUid && t.creatorUid === userUid)
       );
     } else if (userUid) {
       localTests = localTests.filter(t => t.creatorUid === userUid);
@@ -168,22 +255,62 @@ export const apiService = {
       localTests = [];
     }
 
-    return localTests.map(t => ({
-      id: t.id,
-      slug: t.slug || slugifyTitle(t.title),
-      title: t.title,
-      subject: t.subject,
-      instructions: t.instructions,
-      totalMarks: t.totalMarks,
-      timeLimitMinutes: t.timeLimitMinutes,
-      questionCount: t.questions.length,
-      questions: t.questions,
-      createdAt: t.createdAt,
-      creatorName: t.creatorName,
-      creatorUsername: t.creatorUsername,
-      creatorUid: t.creatorUid,
-      submissionCount: getStoredSubmissions(t.id).length,
-    }));
+    // Ensure any locally stored tests created by this user are also synced to the backend server
+    if (!isStaticHost() && localTests.length > 0) {
+      const serverIds = new Set(serverTests.map(st => st.id));
+      localTests.forEach(lt => {
+        if (!serverIds.has(lt.id) && Array.isArray(lt.questions) && lt.questions.length > 0) {
+          fetch('/api/tests/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ test: lt }),
+          }).catch(() => {});
+        }
+      });
+    }
+
+    const combinedMap = new Map<string, any>();
+    [...serverTests, ...localTests].forEach(t => {
+      if (!t || !t.id) return;
+      const matchesUser = normUname
+        ? (t.creatorUsername &&
+            t.creatorUsername.toLowerCase().trim().replace(/^@/, '') === normUname) ||
+          (userUid && t.creatorUid === userUid)
+        : userUid
+        ? t.creatorUid === userUid
+        : false;
+      if (!matchesUser) return;
+
+      const localSubCount = getStoredSubmissions(t.id, t.title).length;
+      const existing = combinedMap.get(t.id);
+      combinedMap.set(t.id, {
+        id: t.id,
+        slug: t.slug || slugifyTitle(t.title),
+        title: t.title,
+        subject: t.subject,
+        instructions: t.instructions,
+        totalMarks: t.totalMarks,
+        timeLimitMinutes: t.timeLimitMinutes,
+        questionCount: Array.isArray(t.questions)
+          ? t.questions.length
+          : t.questionCount || existing?.questionCount || 0,
+        questions:
+          Array.isArray(t.questions) && t.questions.length > 0
+            ? t.questions
+            : existing?.questions || [],
+        createdAt: t.createdAt || existing?.createdAt || new Date().toISOString(),
+        creatorName: t.creatorName || existing?.creatorName,
+        creatorUsername: t.creatorUsername || existing?.creatorUsername,
+        creatorUid: t.creatorUid || existing?.creatorUid,
+        submissionCount: Math.max(
+          Number(t.submissionCount) || 0,
+          Number(existing?.submissionCount) || 0,
+          localSubCount
+        ),
+      });
+    });
+
+    return Array.from(combinedMap.values());
   },
 
   // Get full test by ID or slug (for Teacher view / "See the Test")
@@ -235,13 +362,12 @@ export const apiService = {
     const localTests = getStoredLocalTests();
     const targetSlug = slugifyTitle(cleanId);
     const localMatch =
-      decodedTest ||
       localTests.find(
         t =>
           t.id.toLowerCase() === cleanId.toLowerCase() ||
           (t.slug && t.slug.toLowerCase() === cleanId.toLowerCase()) ||
           slugifyTitle(t.title) === targetSlug
-      );
+      ) || decodedTest;
 
     if (!isStaticHost()) {
       try {
@@ -322,6 +448,9 @@ export const apiService = {
     name: string,
     rollNo: string
   ): Promise<{ hasAttempted: boolean; submissionId?: string; submittedAt?: string }> {
+    const normName = name.trim().toLowerCase();
+    const normRoll = rollNo.trim().toLowerCase();
+
     if (!isStaticHost()) {
       try {
         const res = await fetch(
@@ -330,16 +459,20 @@ export const apiService = {
           )}&rollNo=${encodeURIComponent(rollNo)}`
         );
         if (res.ok) {
-          return await res.json();
+          const serverCheck = await res.json();
+          if (serverCheck && serverCheck.hasAttempted) {
+            return serverCheck;
+          }
         }
       } catch {
-        // Fallback to local
+        // Fallback to cloud & local
       }
     }
 
+    const cloudSubs = await fetchSubmissionsFromCloud(testId).catch(() => []);
+    cloudSubs.forEach(cs => saveLocalSubmission(testId, cs));
+
     const subs = getStoredSubmissions(testId);
-    const normName = name.trim().toLowerCase();
-    const normRoll = rollNo.trim().toLowerCase();
     const existing = subs.find(
       s =>
         (normName && s.studentName.trim().toLowerCase() === normName) ||
@@ -363,26 +496,41 @@ export const apiService = {
       saveLocalTest(decodedTest);
     }
 
+    const localTests = getStoredLocalTests();
+    const cleanId = decodeURIComponent(testId).trim().toLowerCase();
+    const targetSlug = slugifyTitle(cleanId);
+    const localOrDecodedTest =
+      localTests.find(
+        t =>
+          t.id.toLowerCase() === cleanId ||
+          (t.slug && t.slug.toLowerCase() === cleanId) ||
+          slugifyTitle(t.title) === targetSlug
+      ) || decodedTest;
+
     if (!isStaticHost()) {
       try {
-        if (decodedTest) {
+        if (localOrDecodedTest) {
           await fetch('/api/tests/import', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ test: decodedTest }),
+            body: JSON.stringify({ test: localOrDecodedTest }),
           }).catch(() => {});
         }
 
         const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/submit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            ...payload,
+            test: localOrDecodedTest || undefined,
+          }),
         });
 
         if (res.ok) {
           const data = await res.json();
           if (data.submission) {
             saveLocalSubmission(testId, data.submission);
+            await publishSubmissionToCloud(data.submission);
             return data.submission;
           }
         } else if (res.status === 409) {
@@ -397,23 +545,13 @@ export const apiService = {
     }
 
     // Client-side grading (supports any device / email via localStorage or URL payload)
-    const localTests = getStoredLocalTests();
-    const cleanId = decodeURIComponent(testId).trim().toLowerCase();
-    const targetSlug = slugifyTitle(cleanId);
-    const test =
-      decodedTest ||
-      localTests.find(
-        t =>
-          t.id.toLowerCase() === cleanId ||
-          (t.slug && t.slug.toLowerCase() === cleanId) ||
-          slugifyTitle(t.title) === targetSlug
-      );
+    const test = localOrDecodedTest;
 
     if (!test) {
       throw new Error('Test not found for evaluation.');
     }
 
-    const priorSubmissions = getStoredSubmissions(test.id);
+    const priorSubmissions = getStoredSubmissions(test.id, test.title);
     const already = priorSubmissions.find(
       s =>
         s.studentName.toLowerCase() === payload.studentName.toLowerCase().trim() ||
@@ -428,8 +566,12 @@ export const apiService = {
     }
 
     const answersMap = new Map<string, any>();
+    const answersList: any[] = [];
     if (Array.isArray(payload.answers)) {
-      payload.answers.forEach((ans: any) => answersMap.set(ans.questionId, ans));
+      payload.answers.forEach((ans: any, idx: number) => {
+        answersMap.set(ans.questionId, ans);
+        answersList[idx] = ans;
+      });
     } else if (payload.answers && typeof payload.answers === 'object') {
       Object.entries(payload.answers).forEach(([qId, val]: [string, any]) => {
         if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
@@ -447,8 +589,8 @@ export const apiService = {
     let totalScore = 0;
     const evaluations: QuestionEvaluation[] = [];
 
-    test.questions.forEach(q => {
-      const ans = answersMap.get(q.id);
+    test.questions.forEach((q, qIndex) => {
+      const ans = answersMap.get(q.id) || answersMap.get(`q_${qIndex + 1}`) || answersList[qIndex];
       const maxMarks = Number(q.marks) || 0;
 
       if (q.type === 'mcq') {
@@ -662,7 +804,7 @@ export const apiService = {
     else if (percentage >= 50) grade = 'D';
 
     const submission: TestSubmission = {
-      id: `sub_${Date.now()}`,
+      id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       testId: test.id,
       testTitle: test.title,
       subject: test.subject,
@@ -679,23 +821,70 @@ export const apiService = {
     };
 
     saveLocalSubmission(test.id, submission);
+    await publishSubmissionToCloud(submission);
+
+    if (!isStaticHost()) {
+      fetch('/api/submissions/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testId: test.id, submission, test }),
+      }).catch(() => {});
+    }
+
     return submission;
   },
 
-  // Get submissions for a test
-  async getSubmissions(testId: string): Promise<TestSubmission[]> {
-    if (!isStaticHost()) {
-      try {
-        const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/submissions`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.submissions) return data.submissions;
+  // Get submissions for a test (merges Server + Cloud Sync + LocalStorage across all devices/emails)
+  async getSubmissions(testId: string, testTitle?: string): Promise<TestSubmission[]> {
+    const localTests = getStoredLocalTests();
+    const cleanId = decodeURIComponent(testId).trim().toLowerCase();
+    const targetSlug = slugifyTitle(cleanId);
+    const matchedTest = localTests.find(
+      t =>
+        t.id.toLowerCase() === cleanId ||
+        (t.slug && t.slug.toLowerCase() === cleanId) ||
+        slugifyTitle(t.title) === targetSlug
+    );
+    const resolvedTitle = testTitle || matchedTest?.title;
+
+    const serverPromise = !isStaticHost()
+      ? fetch(`/api/tests/${encodeURIComponent(testId)}/submissions`)
+          .then(async res => {
+            if (res.ok) {
+              const data = await res.json();
+              if (data && Array.isArray(data.submissions)) {
+                return data.submissions as TestSubmission[];
+              }
+            }
+            return [] as TestSubmission[];
+          })
+          .catch(() => [] as TestSubmission[])
+      : Promise.resolve([] as TestSubmission[]);
+
+    const cloudPromise = fetchSubmissionsFromCloud(testId, resolvedTitle).catch(
+      () => [] as TestSubmission[]
+    );
+
+    const [serverSubs, cloudSubs] = await Promise.all([serverPromise, cloudPromise]);
+    const localSubs = getStoredSubmissions(testId, resolvedTitle);
+
+    const merged = deduplicateSubmissions([...serverSubs, ...cloudSubs, ...localSubs]);
+
+    // Persist any newly discovered cloud or server submissions into localStorage and server
+    if (merged.length > 0) {
+      merged.forEach(sub => {
+        saveLocalSubmission(testId, sub);
+        if (!isStaticHost() && !serverSubs.some(s => s.id === sub.id)) {
+          fetch('/api/submissions/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ testId, submission: sub, test: matchedTest }),
+          }).catch(() => {});
         }
-      } catch {
-        // Offline fallback
-      }
+      });
     }
-    return getStoredSubmissions(testId);
+
+    return merged;
   },
 
   // Get prior submission by ID

@@ -130,6 +130,7 @@ export function encodeTestToUrlParam(test: Test): string {
       test.creatorName || 'Instructor',
       test.creatorUsername || '',
       compactQuestions,
+      test.creatorUid || '',
     ];
 
     return toBase64Url(JSON.stringify(compactPayload));
@@ -163,6 +164,7 @@ export function decodeTestFromUrlParam(encoded: string): Test | null {
       creatorName,
       creatorUsername,
       rawQuestions,
+      creatorUid,
     ] = data;
 
     if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null;
@@ -230,6 +232,7 @@ export function decodeTestFromUrlParam(encoded: string): Test | null {
       createdAt: new Date().toISOString(),
       creatorName: String(creatorName || 'Instructor'),
       creatorUsername: creatorUsername ? String(creatorUsername) : undefined,
+      creatorUid: creatorUid ? String(creatorUid) : undefined,
     };
   } catch (e) {
     console.warn('Failed to decode test from URL param:', e);
@@ -243,6 +246,16 @@ export function saveDecodedTestToLocalStorage(test: Test): void {
     const raw = localStorage.getItem(LOCAL_TESTS_KEY);
     const existing: Test[] = raw ? JSON.parse(raw) : [];
     const list = Array.isArray(existing) ? existing : [];
+    const match = list.find(
+      t =>
+        t.id === test.id ||
+        t.slug === test.slug ||
+        slugifyTitle(t.title) === slugifyTitle(test.title)
+    );
+    if (match && Array.isArray(match.questions) && match.questions.length > 0) {
+      // Preserve creator metadata and question IDs of existing test on this device
+      return;
+    }
     const filtered = list.filter(t => t.id !== test.id && t.slug !== test.slug);
     filtered.unshift(test);
     localStorage.setItem(LOCAL_TESTS_KEY, JSON.stringify(filtered));
