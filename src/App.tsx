@@ -127,7 +127,12 @@ function AppContent() {
     setCurrentSubmission(null);
     setIsPreviewMode(Boolean(user));
     setCurrentView('taker');
-    window.history.pushState({}, '', `/test/${encodeURIComponent(testIdOrSlug)}`);
+    if (window.location.hostname.includes('github.io')) {
+      const cleanPath = window.location.pathname.replace(/\/test\/.*$/, '');
+      window.history.pushState({}, '', `${cleanPath}?test=${encodeURIComponent(testIdOrSlug)}`);
+    } else {
+      window.history.pushState({}, '', `/test/${encodeURIComponent(testIdOrSlug)}`);
+    }
   };
 
   // Navigation handlers
@@ -170,7 +175,12 @@ function AppContent() {
     setCurrentSubmission(null);
     setIsPreviewMode(false);
     setActiveTestId(null);
-    window.history.pushState({}, '', '/');
+    if (window.location.hostname.includes('github.io')) {
+      const cleanPath = window.location.pathname.replace(/\/test\/.*$/, '') || '/';
+      window.history.pushState({}, '', cleanPath);
+    } else {
+      window.history.pushState({}, '', '/');
+    }
   };
 
   // ==========================================
