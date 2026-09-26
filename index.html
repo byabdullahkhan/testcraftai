@@ -18,42 +18,19 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+      if (window.location.hostname.includes('github.io') && window.location.pathname.includes('/test/')) {
+        var parts = window.location.pathname.split('/test/');
+        var base = (parts[0] || '').replace(/\/+$/, '');
+        var slug = parts[1] ? parts[1].split('/')[0] : '';
+        if (slug) {
+          window.location.replace(base + '/?test=' + encodeURIComponent(slug));
+        }
+      }
+    </script>
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased font-sans">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      (function() {
-        var h = window.location.hostname;
-        var isDevServer =
-          h === 'localhost' ||
-          h === '127.0.0.1' ||
-          h.indexOf('run.app') !== -1 ||
-          h.indexOf('googleusercontent.com') !== -1;
-        var hasBuiltScript = document.querySelector('script[src*="assets/index"]');
-        if (!isDevServer && !hasBuiltScript) {
-          var css = document.createElement('link');
-          css.rel = 'stylesheet';
-          css.href = './assets/index.css?v=10';
-          document.head.appendChild(css);
-
-          var js = document.createElement('script');
-          js.type = 'module';
-          js.src = './assets/index.js?v=10';
-          js.onerror = function() {
-            var css2 = document.createElement('link');
-            css2.rel = 'stylesheet';
-            css2.href = './docs/assets/index.css?v=10';
-            document.head.appendChild(css2);
-
-            var js2 = document.createElement('script');
-            js2.type = 'module';
-            js2.src = './docs/assets/index.js?v=10';
-            document.body.appendChild(js2);
-          };
-          document.body.appendChild(js);
-        }
-      })();
-    </script>
   </body>
 </html>
