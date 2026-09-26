@@ -23,28 +23,21 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // Fallback detector if GitHub Pages is configured to serve root (/) instead of /docs or GitHub Actions
-      window.addEventListener('DOMContentLoaded', function() {
-        setTimeout(function() {
-          var root = document.getElementById('root');
-          if (root && root.children.length === 0 && window.location.hostname.includes('github.io')) {
-            var currentPath = window.location.pathname;
-            if (!currentPath.includes('/docs')) {
-              var targetDocs = currentPath.replace(/\/index\.html$/, '').replace(/\/+$/, '') + '/docs/';
-              var search = window.location.search || '';
-              var sep = search ? '&' : '?';
-              var redirectUrl = targetDocs + search + sep + '_v=8' + (window.location.hash || '');
-              fetch(targetDocs + 'index.html', { method: 'HEAD', cache: 'no-store' })
-                .then(function(res) {
-                  if (res.ok) {
-                    window.location.replace(redirectUrl);
-                  }
-                })
-                .catch(function() {});
-            }
-          }
-        }, 600);
-      });
+      // Automatic loader for GitHub Pages "Deploy from a branch" when set to / (root)
+      (function() {
+        var hasBuiltBundle = document.querySelector('script[src*="assets/index.js"]');
+        if (window.location.hostname.includes('github.io') && !hasBuiltBundle) {
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = './docs/assets/index.css?v=9';
+          document.head.appendChild(link);
+
+          var script = document.createElement('script');
+          script.type = 'module';
+          script.src = './docs/assets/index.js?v=9';
+          document.body.appendChild(script);
+        }
+      })();
     </script>
   </body>
 </html>

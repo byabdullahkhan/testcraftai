@@ -28,6 +28,20 @@ function syncDocsPlugin() {
           fs.copyFileSync(indexHtml, path.join(distDir, '404.html'));
           fs.copyFileSync(indexHtml, path.join(docsDir, '404.html'));
         }
+
+        // Create .nojekyll in root and docs for "Deploy from a branch" on GitHub Pages
+        fs.writeFileSync(path.resolve(__dirname, '.nojekyll'), '');
+        fs.writeFileSync(path.join(docsDir, '.nojekyll'), '');
+
+        // Also alias the main bundle over the legacy filename in case GitHub CDN cached old index.html
+        const mainJs = path.join(docsDir, 'assets', 'index.js');
+        const mainCss = path.join(docsDir, 'assets', 'index.css');
+        if (fs.existsSync(mainJs)) {
+          fs.copyFileSync(mainJs, path.join(docsDir, 'assets', 'index-CBOKpWOA.js'));
+        }
+        if (fs.existsSync(mainCss)) {
+          fs.copyFileSync(mainCss, path.join(docsDir, 'assets', 'index-B3kqqo61.css'));
+        }
       } catch (err) {
         console.warn('Could not sync dist to docs:', err);
       }
@@ -39,6 +53,15 @@ export default defineConfig(() => {
   return {
     base: './',
     plugins: [react(), tailwindcss(), syncDocsPlugin()],
+    build: {
+      rollupOptions: {
+        output: {
+          entryFileNames: 'assets/index.js',
+          chunkFileNames: 'assets/[name].js',
+          assetFileNames: 'assets/[name].[ext]',
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
