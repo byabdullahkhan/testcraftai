@@ -1,0 +1,7 @@
+{
+  "name": "TestCraft AI",
+  "description": "Create customizable tests with MCQs, True/False, and AI-evaluated theory questions, generate shareable links, and track student performance with automated grading and detailed reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

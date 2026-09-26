@@ -1,0 +1,82 @@
+{
+  "$schema": "https://firebase.google.com/schemas/firestore-blueprint.json",
+  "entities": {
+    "User": {
+      "collection": "users",
+      "fields": {
+        "uid": { "type": "string", "description": "Unique Google Auth user ID" },
+        "email": { "type": "string", "description": "User Google email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "username": { "type": "string", "description": "User unique handle without spaces (e.g. @abdullah)" },
+        "photoURL": { "type": "string", "description": "User avatar URL" },
+        "acceptedTerms": { "type": "boolean", "description": "Whether user agreed to Terms and Conditions" },
+        "acceptedTermsAt": { "type": "string", "description": "Timestamp of terms agreement" },
+        "emailNotificationsEnabled": { "type": "boolean", "description": "Whether user wants automated email notifications" },
+        "createdAt": { "type": "string", "description": "Account creation timestamp" },
+        "lastLoginAt": { "type": "string", "description": "Last sign in timestamp" }
+      }
+    },
+    "SiteActivity": {
+      "collection": "activities",
+      "fields": {
+        "id": { "type": "string", "description": "Unique activity ID" },
+        "type": { "type": "string", "description": "Event type: user_login | test_created | submission_received | etc" },
+        "title": { "type": "string", "description": "Activity title" },
+        "description": { "type": "string", "description": "Activity details" },
+        "timestamp": { "type": "string", "description": "ISO timestamp of event" },
+        "userEmail": { "type": "string", "description": "Actor email if applicable" },
+        "username": { "type": "string", "description": "Actor username if applicable" }
+      }
+    },
+    "Test": {
+      "collection": "tests",
+      "fields": {
+        "id": { "type": "string", "description": "Unique test ID" },
+        "slug": { "type": "string", "description": "URL-friendly slug" },
+        "title": { "type": "string", "description": "Test title" },
+        "subject": { "type": "string", "description": "Subject or course name" },
+        "creatorUid": { "type": "string", "description": "Owner Google UID" },
+        "creatorEmail": { "type": "string", "description": "Owner email address" },
+        "creatorName": { "type": "string", "description": "Owner instructor name" },
+        "instructions": { "type": "string", "description": "Instructions for candidates" },
+        "timeLimitMinutes": { "type": "number", "description": "Time limit in minutes or null" },
+        "totalMarks": { "type": "number", "description": "Calculated total marks" },
+        "questionCount": { "type": "number", "description": "Number of questions" },
+        "questions": { "type": "array", "description": "Array of question objects" },
+        "createdAt": { "type": "string", "description": "ISO creation timestamp" }
+      }
+    },
+    "TestSubmission": {
+      "collection": "submissions",
+      "fields": {
+        "id": { "type": "string", "description": "Unique submission ID" },
+        "testId": { "type": "string", "description": "Associated test ID" },
+        "testTitle": { "type": "string", "description": "Test title snapshot" },
+        "subject": { "type": "string", "description": "Subject snapshot" },
+        "studentName": { "type": "string", "description": "Student full name" },
+        "studentIdentifier": { "type": "string", "description": "Roll number or candidate ID" },
+        "submittedAt": { "type": "string", "description": "ISO timestamp of submission" },
+        "timeSpentSeconds": { "type": "number", "description": "Time spent by student" },
+        "totalScore": { "type": "number", "description": "Total marks scored" },
+        "maxScore": { "type": "number", "description": "Maximum possible marks" },
+        "percentage": { "type": "number", "description": "Score percentage" },
+        "grade": { "type": "string", "description": "Letter grade" },
+        "passed": { "type": "boolean", "description": "Pass status" },
+        "evaluations": { "type": "array", "description": "Question by question evaluations" }
+      }
+    },
+    "EmailLog": {
+      "collection": "email_logs",
+      "fields": {
+        "id": { "type": "string", "description": "Unique email log ID" },
+        "recipientEmail": { "type": "string", "description": "Target Google email address" },
+        "recipientUid": { "type": "string", "description": "User UID" },
+        "subject": { "type": "string", "description": "Email subject" },
+        "type": { "type": "string", "description": "welcome | test_published | submission_received" },
+        "bodyText": { "type": "string", "description": "Email body content" },
+        "sentAt": { "type": "string", "description": "ISO timestamp when email was triggered" },
+        "status": { "type": "string", "description": "delivered | pending" }
+      }
+    }
+  }
+}

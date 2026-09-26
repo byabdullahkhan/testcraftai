@@ -1,0 +1,259 @@
+import React, { useState, useEffect } from 'react';
+import { HomeScreen } from './components/HomeScreen';
+import { TestCreator } from './components/TestCreator';
+import { PreviousProjects } from './components/PreviousProjects';
+import { TestTaker } from './components/TestTaker';
+import { TestResultReport } from './components/TestResultReport';
+import { Navbar } from './components/Navbar';
+import { AuthModal } from './components/AuthModal';
+import { AutomatedEmailDrawer } from './components/AutomatedEmailDrawer';
+import { UserProfileModal } from './components/UserProfileModal';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { Test, TestSubmission } from './types';
+import { ArrowLeft } from 'lucide-react';
+import { apiService } from './services/apiService';
+
+export type AppView = 'home' | 'creator' | 'projects' | 'taker';
+
+const CREATED_TESTS_STORAGE_KEY = 'testcraft_created_test_ids_v7_clean';
+
+function AppContent() {
+  const [currentView, setCurrentView] = useState<AppView>('home');
+  const [activeTestId, setActiveTestId] = useState<string | null>(null);
+  const [currentSubmission, setCurrentSubmission] = useState<TestSubmission | null>(null);
+  const [userCreatedTestIds, setUserCreatedTestIds] = useState<string[]>([]);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const { user, openAuthModal } = useAuth();
+
+  // Clean up any legacy previous projects from older storage versions once on mount
+  useEffect(() => {
+    try {
+      localStorage.removeItem('testcraft_local_tests_v6');
+      localStorage.removeItem('testcraft_created_test_ids');
+    } catch {}
+  }, []);
+
+  // If user signs out while on creator or projects view, immediately return to home
+  useEffect(() => {
+    if (!user && (currentView === 'creator' || currentView === 'projects')) {
+      setCurrentView('home');
+    }
+  }, [user, currentView]);
+
+  // Load tests belonging strictly to the signed-in username
+  useEffect(() => {
+    if (user) {
+      apiService
+        .getTests(user.uid, user.username)
+        .then(allTests => {
+          if (allTests && allTests.length > 0) {
+            const userOnly = allTests.filter(
+              t =>
+                (t.creatorUsername &&
+                  t.creatorUsername.toLowerCase().trim().replace(/^@/, '') ===
+                    user.username.toLowerCase().trim().replace(/^@/, '')) ||
+                t.creatorUid === user.uid
+            );
+            setUserCreatedTestIds(userOnly.map(t => t.id));
+          } else {
+            setUserCreatedTestIds([]);
+          }
+        })
+        .catch(console.error);
+    } else {
+      setUserCreatedTestIds([]);
+    }
+  }, [user]);
+
+  // Parse URL on load: supports /test/:slug, ?test=..., ?testId=...
+  useEffect(() => {
+    let identifierFromUrl: string | null = null;
+
+    const path = window.location.pathname;
+    if (path.includes('/test/')) {
+      const parts = path.split('/test/');
+      if (parts[1]) {
+        const slug = parts[1].split('/')[0].split('?')[0].trim();
+        if (slug) {
+          identifierFromUrl = decodeURIComponent(slug);
+        }
+      }
+    }
+
+    if (!identifierFromUrl) {
+      const params = new URLSearchParams(window.location.search);
+      identifierFromUrl = params.get('test') || params.get('testId');
+    }
+
+    if (!identifierFromUrl && window.location.hash) {
+      const hash = window.location.hash;
+      if (hash.includes('/test/')) {
+        const parts = hash.split('/test/');
+        if (parts[1]) {
+          const slug = parts[1].split('/')[0].split('?')[0].trim();
+          if (slug) identifierFromUrl = decodeURIComponent(slug);
+        }
+      } else if (hash.includes('test=')) {
+        const match = hash.match(/test=([^&]+)/);
+        if (match && match[1]) identifierFromUrl = decodeURIComponent(match[1]);
+      }
+    }
+
+    if (identifierFromUrl) {
+      setActiveTestId(identifierFromUrl);
+      setCurrentView('taker');
+      setCurrentSubmission(null);
+      setIsPreviewMode(false);
+    }
+  }, []);
+
+  // When a test is created or uploaded by teacher
+  const handleTestCreated = (newTest: Test) => {
+    setActiveTestId(newTest.id);
+    setUserCreatedTestIds(prev => {
+      const updated = Array.from(new Set([newTest.id, ...prev]));
+      try {
+        localStorage.setItem(CREATED_TESTS_STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+  };
+
+  // Open / Take test as student
+  const handlePreviewTest = (testIdOrSlug: string) => {
+    setActiveTestId(testIdOrSlug);
+    setCurrentSubmission(null);
+    setIsPreviewMode(Boolean(user));
+    setCurrentView('taker');
+    window.history.pushState({}, '', `/test/${encodeURIComponent(testIdOrSlug)}`);
+  };
+
+  // Navigation handlers
+  const handleMakeTest = () => {
+    if (!user) {
+      openAuthModal('signin', () => setCurrentView('creator'));
+      return;
+    }
+    setCurrentView('creator');
+  };
+
+  const handleViewProjects = () => {
+    if (!user) {
+      openAuthModal('signin', () => setCurrentView('projects'));
+      return;
+    }
+    setCurrentView('projects');
+  };
+
+  // When student submits test
+  const handleSubmissionComplete = (submission: TestSubmission) => {
+    setCurrentSubmission(submission);
+  };
+
+  // When viewing prior result for single-attempt candidate
+  const handleViewPriorResult = (submissionId: string) => {
+    apiService
+      .getSubmissionById(submissionId)
+      .then(sub => {
+        if (sub) {
+          setCurrentSubmission(sub);
+        }
+      })
+      .catch(console.error);
+  };
+
+  // Return to home
+  const handleBackToHome = () => {
+    setCurrentView('home');
+    setCurrentSubmission(null);
+    setIsPreviewMode(false);
+    setActiveTestId(null);
+    window.history.pushState({}, '', '/');
+  };
+
+  // ==========================================
+  // 1. STUDENT VIEW / TEST-TAKING SCREEN
+  // (Clean standalone test & result view — no logo, no site name, no account name)
+  // ==========================================
+  if (currentView === 'taker' && activeTestId) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-indigo-100">
+        <main className="py-6">
+          {currentSubmission ? (
+            <TestResultReport submission={currentSubmission} />
+          ) : (
+            <TestTaker
+              key={activeTestId}
+              testId={activeTestId}
+              onSubmissionComplete={handleSubmissionComplete}
+              onViewPriorResult={handleViewPriorResult}
+            />
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // 2. MAIN TEACHER / CREATOR WORKSPACE
+  // ==========================================
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col antialiased selection:bg-indigo-100">
+      <Navbar
+        onGoHome={handleBackToHome}
+        onMakeTest={handleMakeTest}
+        onViewProjects={handleViewProjects}
+        currentView={currentView}
+      />
+
+      <main className="flex-1">
+        {currentView === 'home' && (
+          <HomeScreen
+            onMakeTest={handleMakeTest}
+            onViewProjects={handleViewProjects}
+            onTakeTest={handlePreviewTest}
+          />
+        )}
+
+        {currentView === 'creator' && user && (
+          <TestCreator
+            onTestCreated={handleTestCreated}
+            onGoToTest={handlePreviewTest}
+            onGoToPreviousProjects={handleViewProjects}
+            onBackToHome={handleBackToHome}
+          />
+        )}
+
+        {currentView === 'projects' && user && (
+          <PreviousProjects
+            onBackToHome={handleBackToHome}
+            onMakeNewTest={handleMakeTest}
+            onPreviewAsStudent={handlePreviewTest}
+            onTestCreated={handleTestCreated}
+            filteredTestIds={userCreatedTestIds}
+          />
+        )}
+      </main>
+
+      <AuthModal />
+      <UserProfileModal />
+      <AutomatedEmailDrawer />
+
+      {currentView === 'home' && (
+        <footer className="py-6 text-center text-xs text-slate-400 border-t border-slate-200/70">
+          <p>Online Examination & Conceptual Evaluation System • Full Account Privacy & Isolation</p>
+        </footer>
+      )}
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}

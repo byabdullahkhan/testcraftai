@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="tc-bg" x1="10" y1="10" x2="110" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+
+    <!-- Craft Fold Gradient 1 -->
+    <linearGradient id="tc-fold1" x1="30" y1="20" x2="90" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#e0e7ff" stop-opacity="0.8" />
+    </linearGradient>
+
+    <!-- Craft Fold Gradient 2 (Cyan AI Spark) -->
+    <linearGradient id="tc-accent" x1="20" y1="20" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+
+    <!-- Soft Glow Filter -->
+    <filter id="tc-shadow" x="0" y="4" width="120" height="116" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#4338ca" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Base Rounded Hexagonal Container -->
+  <rect x="8" y="8" width="104" height="104" rx="28" fill="url(#tc-bg)" filter="url(#tc-shadow)" />
+
+  <!-- Subtle Inner Border Highlight -->
+  <rect x="9" y="9" width="102" height="102" rx="27" fill="none" stroke="white" stroke-width="1.5" stroke-opacity="0.2" />
+
+  <!-- Precision Assessment Craft Emblem -->
+  <!-- Layer 1: Stylized 'T' & Folded Exam Paper Geometry -->
+  <path
+    d="M34 38 C34 33.58 37.58 30 42 30 L78 30 C82.42 30 86 33.58 86 38 L86 42 C86 44.2 84.2 46 82 46 L67 46 L67 80 C67 84.42 63.42 88 59 88 L55 88 C50.58 88 47 84.42 47 80 L47 46 L38 46 C35.8 46 34 44.2 34 42 Z"
+    fill="url(#tc-fold1)"
+  />
+
+  <!-- Layer 2: Glowing AI Checkmark / Precision Craft Tip -->
+  <path
+    d="M48 64 L58 74 L88 44"
+    fill="none"
+    stroke="url(#tc-accent)"
+    stroke-width="7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Layer 3: AI Intelligence Spark at the top right -->
+  <path
+    d="M84 22 C84 26 88 28 88 28 C88 28 84 30 84 34 C84 30 80 28 80 28 C80 28 84 26 84 22 Z"
+    fill="#38bdf8"
+  />
+  <circle cx="84" cy="28" r="1.5" fill="#ffffff" />
+</svg>
