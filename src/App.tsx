@@ -10,8 +10,8 @@ import { AutomatedEmailDrawer } from './components/AutomatedEmailDrawer';
 import { UserProfileModal } from './components/UserProfileModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Test, TestSubmission } from './types';
-import { ArrowLeft } from 'lucide-react';
 import { apiService } from './services/apiService';
+import { extractAndSyncTestFromUrl, getStudentShareUrl } from './utils/urlHelper';
 
 export type AppView = 'home' | 'creator' | 'projects' | 'taker';
 
@@ -65,46 +65,26 @@ function AppContent() {
     }
   }, [user]);
 
-  // Parse URL on load: supports /test/:slug, ?test=..., ?testId=...
+  // Parse URL on load and on navigation: supports /test/:slug, ?test=..., ?d=... on any email/device
   useEffect(() => {
-    let identifierFromUrl: string | null = null;
-
-    const path = window.location.pathname;
-    if (path.includes('/test/')) {
-      const parts = path.split('/test/');
-      if (parts[1]) {
-        const slug = parts[1].split('/')[0].split('?')[0].trim();
-        if (slug) {
-          identifierFromUrl = decodeURIComponent(slug);
-        }
+    const checkUrlForTest = () => {
+      const { testId, decodedTest } = extractAndSyncTestFromUrl();
+      const targetId = decodedTest?.id || testId;
+      if (targetId) {
+        setActiveTestId(targetId);
+        setCurrentView('taker');
+        setCurrentSubmission(null);
+        setIsPreviewMode(false);
       }
-    }
+    };
 
-    if (!identifierFromUrl) {
-      const params = new URLSearchParams(window.location.search);
-      identifierFromUrl = params.get('test') || params.get('testId');
-    }
-
-    if (!identifierFromUrl && window.location.hash) {
-      const hash = window.location.hash;
-      if (hash.includes('/test/')) {
-        const parts = hash.split('/test/');
-        if (parts[1]) {
-          const slug = parts[1].split('/')[0].split('?')[0].trim();
-          if (slug) identifierFromUrl = decodeURIComponent(slug);
-        }
-      } else if (hash.includes('test=')) {
-        const match = hash.match(/test=([^&]+)/);
-        if (match && match[1]) identifierFromUrl = decodeURIComponent(match[1]);
-      }
-    }
-
-    if (identifierFromUrl) {
-      setActiveTestId(identifierFromUrl);
-      setCurrentView('taker');
-      setCurrentSubmission(null);
-      setIsPreviewMode(false);
-    }
+    checkUrlForTest();
+    window.addEventListener('popstate', checkUrlForTest);
+    window.addEventListener('hashchange', checkUrlForTest);
+    return () => {
+      window.removeEventListener('popstate', checkUrlForTest);
+      window.removeEventListener('hashchange', checkUrlForTest);
+    };
   }, []);
 
   // When a test is created or uploaded by teacher
@@ -122,16 +102,26 @@ function AppContent() {
   };
 
   // Open / Take test as student
-  const handlePreviewTest = (testIdOrSlug: string) => {
-    setActiveTestId(testIdOrSlug);
+  const handlePreviewTest = (testIdOrSlugOrUrl: string) => {
+    const { testId: extractedId, decodedTest } = extractAndSyncTestFromUrl(testIdOrSlugOrUrl);
+    const resolvedId = decodedTest?.id || extractedId || testIdOrSlugOrUrl;
+
+    setActiveTestId(resolvedId);
     setCurrentSubmission(null);
     setIsPreviewMode(Boolean(user));
     setCurrentView('taker');
-    if (window.location.hostname.includes('github.io')) {
-      const cleanPath = window.location.pathname.replace(/\/test\/.*$/, '');
-      window.history.pushState({}, '', `${cleanPath}?test=${encodeURIComponent(testIdOrSlug)}`);
-    } else {
-      window.history.pushState({}, '', `/test/${encodeURIComponent(testIdOrSlug)}`);
+
+    try {
+      const shareUrl = getStudentShareUrl(resolvedId, decodedTest || undefined);
+      const parsed = new URL(shareUrl, window.location.origin);
+      window.history.pushState({}, '', `${parsed.pathname}${parsed.search}${parsed.hash}`);
+    } catch {
+      if (window.location.hostname.includes('github.io')) {
+        const cleanPath = window.location.pathname.replace(/\/test\/.*$/, '');
+        window.history.pushState({}, '', `${cleanPath}?test=${encodeURIComponent(resolvedId)}`);
+      } else {
+        window.history.pushState({}, '', `/test/${encodeURIComponent(resolvedId)}`);
+      }
     }
   };
 

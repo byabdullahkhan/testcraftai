@@ -35,11 +35,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
     setInputError('');
     if (onTakeTest) {
-      let identifier = query;
-      if (identifier.includes('/test/')) {
-        identifier = identifier.split('/test/')[1].split(/[?#]/)[0];
-      }
-      onTakeTest(identifier);
+      onTakeTest(query);
     }
   };
 

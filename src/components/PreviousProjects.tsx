@@ -31,9 +31,11 @@ interface TestSummary {
   slug?: string;
   title: string;
   subject: string;
+  instructions?: string;
   totalMarks: number;
   timeLimitMinutes: number | null;
   questionCount: number;
+  questions?: Question[];
   createdAt: string;
   creatorName: string;
   creatorUid?: string;

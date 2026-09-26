@@ -5,6 +5,7 @@ import {
   UserProfile,
   cleanUsername,
 } from '../types';
+import { extractAndSyncTestFromUrl } from '../utils/urlHelper';
 
 const LOCAL_TESTS_KEY = 'testcraft_local_tests_v7_clean';
 const LOCAL_SUBMISSIONS_KEY_PREFIX = 'testcraft_local_submissions_v7_';
@@ -75,6 +76,47 @@ function saveLocalSubmission(testId: string, submission: TestSubmission) {
   }
 }
 
+function formatTestForStudent(test: Test): any {
+  const sanitizedQuestions = (test.questions || []).map((q: any) => {
+    const base = {
+      id: q.id,
+      type: q.type,
+      questionText: q.questionText,
+      marks: q.marks,
+    };
+
+    if (q.type === 'mcq') {
+      const correctCount =
+        Array.isArray(q.correctOptionIds) && q.correctOptionIds.length > 0
+          ? q.correctOptionIds.length
+          : Number(q.correctCount) > 0
+          ? Number(q.correctCount)
+          : 1;
+      return {
+        ...base,
+        options: q.options || [],
+        correctCount,
+        isMultipleCorrect: correctCount > 1,
+        partialMarkingRule: q.partialMarkingRule || 'half',
+      };
+    }
+
+    return base;
+  });
+
+  return {
+    id: test.id,
+    slug: test.slug || slugifyTitle(test.title),
+    title: test.title,
+    subject: test.subject,
+    instructions: test.instructions,
+    timeLimitMinutes: test.timeLimitMinutes,
+    totalMarks: test.totalMarks,
+    questionCount: (test.questions || []).length,
+    questions: sanitizedQuestions,
+  };
+}
+
 export const apiService = {
   // Get all tests for the signed-in user (strictly isolated by username/uid)
   async getTests(userUid?: string, username?: string): Promise<any[]> {
@@ -90,6 +132,11 @@ export const apiService = {
         if (res.ok) {
           const data = await res.json();
           if (data && Array.isArray(data.tests)) {
+            data.tests.forEach((t: any) => {
+              if (t && Array.isArray(t.questions) && t.questions.length > 0) {
+                saveLocalTest(t as Test);
+              }
+            });
             if (normUname) {
               return data.tests.filter(
                 (t: any) =>
@@ -126,9 +173,11 @@ export const apiService = {
       slug: t.slug || slugifyTitle(t.title),
       title: t.title,
       subject: t.subject,
+      instructions: t.instructions,
       totalMarks: t.totalMarks,
       timeLimitMinutes: t.timeLimitMinutes,
       questionCount: t.questions.length,
+      questions: t.questions,
       createdAt: t.createdAt,
       creatorName: t.creatorName,
       creatorUsername: t.creatorUsername,
@@ -139,7 +188,13 @@ export const apiService = {
 
   // Get full test by ID or slug (for Teacher view / "See the Test")
   async getTestById(testIdOrSlug: string): Promise<Test | null> {
-    const cleanId = decodeURIComponent(testIdOrSlug).trim();
+    const { testId: extractedId, decodedTest } = extractAndSyncTestFromUrl(testIdOrSlug);
+    const cleanId = decodeURIComponent(extractedId || testIdOrSlug).trim();
+
+    if (decodedTest) {
+      saveLocalTest(decodedTest);
+    }
+
     if (!isStaticHost()) {
       try {
         const res = await fetch(`/api/tests/${encodeURIComponent(cleanId)}`);
@@ -155,6 +210,8 @@ export const apiService = {
       }
     }
 
+    if (decodedTest) return decodedTest;
+
     const localTests = getStoredLocalTests();
     const targetSlug = slugifyTitle(cleanId);
     const found = localTests.find(
@@ -166,17 +223,25 @@ export const apiService = {
     return found || null;
   },
 
-  // Get test for student taking the test
+  // Get test for student taking the test (works across any device, browser, or email account)
   async getTestForTaking(testIdOrSlug: string): Promise<any> {
-    const cleanId = decodeURIComponent(testIdOrSlug).trim();
+    const { testId: extractedId, decodedTest } = extractAndSyncTestFromUrl(testIdOrSlug);
+    const cleanId = decodeURIComponent(extractedId || testIdOrSlug).trim();
+
+    if (decodedTest) {
+      saveLocalTest(decodedTest);
+    }
+
     const localTests = getStoredLocalTests();
     const targetSlug = slugifyTitle(cleanId);
-    const localMatch = localTests.find(
-      t =>
-        t.id.toLowerCase() === cleanId.toLowerCase() ||
-        (t.slug && t.slug.toLowerCase() === cleanId.toLowerCase()) ||
-        slugifyTitle(t.title) === targetSlug
-    );
+    const localMatch =
+      decodedTest ||
+      localTests.find(
+        t =>
+          t.id.toLowerCase() === cleanId.toLowerCase() ||
+          (t.slug && t.slug.toLowerCase() === cleanId.toLowerCase()) ||
+          slugifyTitle(t.title) === targetSlug
+      );
 
     if (!isStaticHost()) {
       try {
@@ -190,7 +255,7 @@ export const apiService = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ test: localMatch }),
           }).catch(() => {});
-          return localMatch;
+          return formatTestForStudent(localMatch);
         }
       } catch {
         // Offline fallback
@@ -198,7 +263,7 @@ export const apiService = {
     }
 
     if (localMatch) {
-      return localMatch;
+      return formatTestForStudent(localMatch);
     }
 
     throw new Error(`Test "${cleanId}" was not found. Please check the test link and try again.`);
@@ -293,8 +358,21 @@ export const apiService = {
 
   // Submit student test and grade
   async submitTest(testId: string, payload: any): Promise<TestSubmission> {
+    const { decodedTest } = extractAndSyncTestFromUrl(testId);
+    if (decodedTest) {
+      saveLocalTest(decodedTest);
+    }
+
     if (!isStaticHost()) {
       try {
+        if (decodedTest) {
+          await fetch('/api/tests/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ test: decodedTest }),
+          }).catch(() => {});
+        }
+
         const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/submit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -318,14 +396,24 @@ export const apiService = {
       }
     }
 
-    // Client-side fallback grading
+    // Client-side grading (supports any device / email via localStorage or URL payload)
     const localTests = getStoredLocalTests();
-    const test = localTests.find(t => t.id === testId || t.slug === testId);
+    const cleanId = decodeURIComponent(testId).trim().toLowerCase();
+    const targetSlug = slugifyTitle(cleanId);
+    const test =
+      decodedTest ||
+      localTests.find(
+        t =>
+          t.id.toLowerCase() === cleanId ||
+          (t.slug && t.slug.toLowerCase() === cleanId) ||
+          slugifyTitle(t.title) === targetSlug
+      );
+
     if (!test) {
       throw new Error('Test not found for evaluation.');
     }
 
-    const priorSubmissions = getStoredSubmissions(testId);
+    const priorSubmissions = getStoredSubmissions(test.id);
     const already = priorSubmissions.find(
       s =>
         s.studentName.toLowerCase() === payload.studentName.toLowerCase().trim() ||
@@ -425,9 +513,10 @@ export const apiService = {
           if (
             q.partialMarkingRule !== 'zero' &&
             correctSelectedCount > 0 &&
-            wrongSelectedCount === 0
+            (wrongSelectedCount === 0 || correctSelectedCount >= 1)
           ) {
-            const fraction = correctSelectedCount / correctIds.size;
+            const fraction =
+              wrongSelectedCount === 0 ? correctSelectedCount / correctIds.size : 0.5;
             const awarded = Math.round(fraction * maxMarks * 10) / 10;
             totalScore += awarded;
             evaluations.push({
@@ -486,16 +575,47 @@ export const apiService = {
         }
       } else if (q.type === 'theory') {
         const studentText = (ans?.theoryAnswer || '').trim();
-        const wordCount = studentText.split(/\s+/).filter(Boolean).length;
+        const modelText = (q.modelAnswer || '').trim();
         let marksAwarded = 0;
         let status: 'correct' | 'partial' | 'wrong' = 'wrong';
+        let ratio = 0;
 
-        if (wordCount >= 15) {
-          marksAwarded = Math.round(maxMarks * 0.8 * 10) / 10;
-          status = 'correct';
-        } else if (wordCount >= 5) {
-          marksAwarded = Math.round(maxMarks * 0.5 * 10) / 10;
-          status = 'partial';
+        if (studentText) {
+          const modelTokens = new Set<string>(
+            modelText
+              .toLowerCase()
+              .replace(/[^a-z0-9\s]/g, '')
+              .split(/\s+/)
+              .filter(w => w.length > 3)
+          );
+          const studentTokens = new Set<string>(
+            studentText
+              .toLowerCase()
+              .replace(/[^a-z0-9\s]/g, '')
+              .split(/\s+/)
+              .filter(w => w.length > 3)
+          );
+
+          let matchCount = 0;
+          studentTokens.forEach(token => {
+            if (modelTokens.has(token)) matchCount++;
+          });
+
+          const overlapRatio =
+            modelTokens.size > 0 ? Math.min(1, matchCount / Math.max(1, modelTokens.size * 0.55)) : 0.7;
+          const lengthFactor = Math.min(1, studentText.length / Math.max(25, modelText.length * 0.4));
+          ratio = Math.min(1, overlapRatio * 0.65 + lengthFactor * 0.35);
+
+          if (ratio >= 0.75) {
+            marksAwarded = Math.round(maxMarks * Math.max(0.85, ratio) * 10) / 10;
+            status = 'correct';
+          } else if (ratio >= 0.35) {
+            marksAwarded = Math.round(maxMarks * ratio * 10) / 10;
+            status = 'partial';
+          } else {
+            marksAwarded = Math.round(maxMarks * Math.max(0, ratio * 0.5) * 10) / 10;
+            status = marksAwarded > 0 ? 'partial' : 'wrong';
+          }
         }
 
         totalScore += marksAwarded;
@@ -509,17 +629,23 @@ export const apiService = {
           studentAnswerDisplay: studentText || 'No answer submitted',
           correctAnswerDisplay: q.modelAnswer || 'Instructor model answer',
           theoryFeedback: {
-            conceptMatchPercentage: status === 'correct' ? 85 : status === 'partial' ? 55 : 20,
-            accuracyScore: marksAwarded,
+            conceptMatchPercentage: Math.round(ratio * 100),
+            accuracyScore: Math.round(ratio * 10 * 10) / 10,
             conceptualVerdict:
               status === 'correct'
-                ? 'Demonstrates solid conceptual understanding'
+                ? 'Demonstrates strong conceptual understanding'
                 : status === 'partial'
-                ? 'Adequate answer with key concepts'
-                : 'Needs further elaboration',
-            strengths: 'Good attempt addressing key ideas.',
-            missingPoints: 'Consider adding further specific technical terminology.',
-            rubricNotes: 'Evaluated based on standard conceptual keywords.',
+                ? 'Partial conceptual coverage with key ideas'
+                : 'Insufficient conceptual coverage',
+            strengths:
+              status === 'wrong'
+                ? 'Attempt recorded.'
+                : 'Covered core concepts aligned with the reference model.',
+            missingPoints:
+              status === 'correct'
+                ? 'All primary concepts addressed.'
+                : 'Review the reference answer for additional conceptual details.',
+            rubricNotes: 'Evaluated via conceptual alignment and key terminology.',
           },
         });
       }
@@ -552,7 +678,7 @@ export const apiService = {
       evaluations,
     };
 
-    saveLocalSubmission(testId, submission);
+    saveLocalSubmission(test.id, submission);
     return submission;
   },
 
@@ -644,7 +770,10 @@ export const apiService = {
           }
         }
       } catch (err: any) {
-        if (err.message && (err.message.includes('already taken') || err.message.includes('must be'))) {
+        if (
+          err.message &&
+          (err.message.includes('already taken') || err.message.includes('must be'))
+        ) {
           throw err;
         }
       }
