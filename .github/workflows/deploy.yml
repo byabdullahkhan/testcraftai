@@ -27,33 +27,50 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Prepare package.json for static frontend build
+      - name: Prepare clean frontend package.json for public npm
         run: |
+          rm -f package-lock.json bun.lock
           node -e '
             const fs = require("fs");
-            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            if (pkg.dependencies) {
-              delete pkg.dependencies["@google/genai"];
-              delete pkg.dependencies["firebase"];
-              delete pkg.dependencies["express"];
-              delete pkg.dependencies["dotenv"];
-            }
-            if (pkg.devDependencies) {
-              delete pkg.devDependencies["@types/express"];
-            }
-            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+            const cleanPkg = {
+              name: "testcraft-ai",
+              private: true,
+              version: "1.0.0",
+              type: "module",
+              scripts: {
+                build: "vite build"
+              },
+              dependencies: {
+                "react": "^19.0.0",
+                "react-dom": "^19.0.0",
+                "lucide-react": "latest",
+                "motion": "latest"
+              },
+              devDependencies: {
+                "@tailwindcss/vite": "^4.0.0",
+                "@types/node": "^22.0.0",
+                "@types/react": "^19.0.0",
+                "@types/react-dom": "^19.0.0",
+                "@vitejs/plugin-react": "^4.3.4",
+                "tailwindcss": "^4.0.0",
+                "typescript": "^5.6.0",
+                "vite": "^6.0.0"
+              }
+            };
+            fs.writeFileSync("package.json", JSON.stringify(cleanPkg, null, 2));
           '
 
       - name: Install dependencies
-        run: npm install --no-package-lock --legacy-peer-deps
+        run: npm install --no-audit --no-fund --legacy-peer-deps
 
       - name: Build static frontend
         run: |
-          npx vite build
+          npx vite build --base=./
           cp dist/index.html dist/404.html
           touch dist/.nojekyll
+          ls -la dist dist/assets
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
