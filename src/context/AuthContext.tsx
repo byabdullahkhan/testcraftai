@@ -41,7 +41,7 @@ const LOCAL_EMAILS_KEY_PREFIX = 'testcraft_emails_';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'signin' | 'get_started'>('signin');
   const [pendingSuccessCallback, setPendingSuccessCallback] = useState<(() => void) | null>(null);
@@ -49,22 +49,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [emailDrawerOpen, setEmailDrawerOpen] = useState(false);
   const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
 
-  // Restore stored session on mount
+  // Always require fresh sign-in whenever the user leaves and reopens the site
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(LOCAL_SESSION_KEY);
-      if (stored) {
-        const parsed: UserProfile = JSON.parse(stored);
-        if (parsed && parsed.username) {
-          setUserProfile(parsed);
-          loadUserEmails(parsed.uid);
-        }
-      }
-    } catch (e) {
-      console.warn('Error reading auth session from storage', e);
-    } finally {
-      setLoading(false);
-    }
+      localStorage.removeItem(LOCAL_SESSION_KEY);
+      sessionStorage.removeItem(LOCAL_SESSION_KEY);
+    } catch {}
+
+    const handleLeaveSite = () => {
+      try {
+        localStorage.removeItem(LOCAL_SESSION_KEY);
+        sessionStorage.removeItem(LOCAL_SESSION_KEY);
+      } catch {}
+    };
+
+    window.addEventListener('pagehide', handleLeaveSite);
+    window.addEventListener('beforeunload', handleLeaveSite);
+    return () => {
+      window.removeEventListener('pagehide', handleLeaveSite);
+      window.removeEventListener('beforeunload', handleLeaveSite);
+    };
   }, []);
 
   const loadUserEmails = (uid: string) => {
@@ -100,7 +104,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     setUserProfile(user);
-    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(user));
     loadUserEmails(user.uid);
     closeAuthModal();
 
@@ -120,7 +123,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     setUserProfile(user);
-    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(user));
     loadUserEmails(user.uid);
     closeAuthModal();
 
@@ -131,7 +133,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOutUser = () => {
-    localStorage.removeItem(LOCAL_SESSION_KEY);
+    try {
+      localStorage.removeItem(LOCAL_SESSION_KEY);
+      sessionStorage.removeItem(LOCAL_SESSION_KEY);
+    } catch {}
     setUserProfile(null);
     setRecentEmails([]);
     closeAuthModal();
@@ -149,7 +154,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     setUserProfile(updatedProfile);
-    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(updatedProfile));
 
     if (!window.location.hostname.includes('github.io')) {
       try {
