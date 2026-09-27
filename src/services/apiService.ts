@@ -10,6 +10,9 @@ import {
   publishSubmissionToCloud,
   fetchSubmissionsFromCloud,
   doesSubmissionMatchTest,
+  publishTestToCloud,
+  ensureTestPublishedToCloud,
+  fetchTestFromCloud,
 } from '../utils/cloudSync';
 
 const LOCAL_TESTS_KEY = 'testcraft_local_tests_v7_clean';
@@ -283,7 +286,12 @@ export const apiService = {
 
       const localSubCount = getStoredSubmissions(t.id, t.title).length;
       const existing = combinedMap.get(t.id);
-      combinedMap.set(t.id, {
+      const mergedQuestions =
+        Array.isArray(t.questions) && t.questions.length > 0
+          ? t.questions
+          : existing?.questions || [];
+
+      const summaryObj = {
         id: t.id,
         slug: t.slug || slugifyTitle(t.title),
         title: t.title,
@@ -294,10 +302,7 @@ export const apiService = {
         questionCount: Array.isArray(t.questions)
           ? t.questions.length
           : t.questionCount || existing?.questionCount || 0,
-        questions:
-          Array.isArray(t.questions) && t.questions.length > 0
-            ? t.questions
-            : existing?.questions || [],
+        questions: mergedQuestions,
         createdAt: t.createdAt || existing?.createdAt || new Date().toISOString(),
         creatorName: t.creatorName || existing?.creatorName,
         creatorUsername: t.creatorUsername || existing?.creatorUsername,
@@ -307,7 +312,12 @@ export const apiService = {
           Number(existing?.submissionCount) || 0,
           localSubCount
         ),
-      });
+      };
+      combinedMap.set(t.id, summaryObj);
+
+      if (mergedQuestions.length > 0) {
+        ensureTestPublishedToCloud(summaryObj as unknown as Test);
+      }
     });
 
     return Array.from(combinedMap.values());
@@ -329,6 +339,7 @@ export const apiService = {
           const data = await res.json();
           if (data.test) {
             saveLocalTest(data.test);
+            ensureTestPublishedToCloud(data.test);
             return data.test;
           }
         }
@@ -337,17 +348,28 @@ export const apiService = {
       }
     }
 
-    if (decodedTest) return decodedTest;
-
     const localTests = getStoredLocalTests();
     const targetSlug = slugifyTitle(cleanId);
-    const found = localTests.find(
-      t =>
-        t.id.toLowerCase() === cleanId.toLowerCase() ||
-        (t.slug && t.slug.toLowerCase() === cleanId.toLowerCase()) ||
-        slugifyTitle(t.title) === targetSlug
-    );
-    return found || null;
+    const found =
+      localTests.find(
+        t =>
+          t.id.toLowerCase() === cleanId.toLowerCase() ||
+          (t.slug && t.slug.toLowerCase() === cleanId.toLowerCase()) ||
+          slugifyTitle(t.title) === targetSlug
+      ) || decodedTest;
+
+    if (found) {
+      ensureTestPublishedToCloud(found);
+      return found;
+    }
+
+    const cloudTest = await fetchTestFromCloud(cleanId).catch(() => null);
+    if (cloudTest) {
+      saveLocalTest(cloudTest);
+      return cloudTest;
+    }
+
+    return null;
   },
 
   // Get test for student taking the test (works across any device, browser, or email account)
@@ -361,7 +383,7 @@ export const apiService = {
 
     const localTests = getStoredLocalTests();
     const targetSlug = slugifyTitle(cleanId);
-    const localMatch =
+    let localMatch =
       localTests.find(
         t =>
           t.id.toLowerCase() === cleanId.toLowerCase() ||
@@ -390,6 +412,20 @@ export const apiService = {
 
     if (localMatch) {
       return formatTestForStudent(localMatch);
+    }
+
+    // Fetch from cloud by short title slug so short links work on any device/email worldwide
+    const cloudTest = await fetchTestFromCloud(cleanId).catch(() => null);
+    if (cloudTest) {
+      saveLocalTest(cloudTest);
+      if (!isStaticHost()) {
+        fetch('/api/tests/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ test: cloudTest }),
+        }).catch(() => {});
+      }
+      return formatTestForStudent(cloudTest);
     }
 
     throw new Error(`Test "${cleanId}" was not found. Please check the test link and try again.`);
@@ -430,6 +466,7 @@ export const apiService = {
           const data = await res.json();
           if (data.test) {
             saveLocalTest(data.test);
+            await publishTestToCloud(data.test);
             return data.test;
           }
         }
@@ -439,6 +476,7 @@ export const apiService = {
     }
 
     saveLocalTest(newTest);
+    await publishTestToCloud(newTest);
     return newTest;
   },
 
@@ -499,13 +537,21 @@ export const apiService = {
     const localTests = getStoredLocalTests();
     const cleanId = decodeURIComponent(testId).trim().toLowerCase();
     const targetSlug = slugifyTitle(cleanId);
-    const localOrDecodedTest =
+    let localOrDecodedTest =
       localTests.find(
         t =>
           t.id.toLowerCase() === cleanId ||
           (t.slug && t.slug.toLowerCase() === cleanId) ||
           slugifyTitle(t.title) === targetSlug
       ) || decodedTest;
+
+    if (!localOrDecodedTest) {
+      const cloudTest = await fetchTestFromCloud(cleanId).catch(() => null);
+      if (cloudTest) {
+        saveLocalTest(cloudTest);
+        localOrDecodedTest = cloudTest;
+      }
+    }
 
     if (!isStaticHost()) {
       try {
@@ -735,7 +781,7 @@ export const apiService = {
               .toLowerCase()
               .replace(/[^a-z0-9\s]/g, '')
               .split(/\s+/)
-              .filter(w => w.length > 3)
+              .filter((w: string) => w.length > 3)
           );
 
           let matchCount = 0;

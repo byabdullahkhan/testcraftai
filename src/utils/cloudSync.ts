@@ -1,8 +1,10 @@
-import { TestSubmission, QuestionEvaluation, TheoryFeedback } from '../types';
+import { Test, Question, TestSubmission, QuestionEvaluation, TheoryFeedback } from '../types';
 import { slugifyTitle } from './urlHelper';
 
 const NTFY_BASE_URL = 'https://ntfy.sh';
 const GLOBAL_SUBS_TOPIC = 'tc_v7_sub_global_stream';
+const GLOBAL_TESTS_TOPIC = 'tc_v7_test_global_catalog';
+const SYNCED_TESTS_STORAGE_KEY = 'testcraft_v7_cloud_synced_tests_map';
 const BroadcastChannelName = 'testcraft_v7_realtime_submissions';
 
 function cleanTopicKey(str: string): string {
@@ -363,4 +365,295 @@ export function subscribeToLiveSubmissions(
       } catch {}
     });
   };
+}
+
+// ============================================================================
+// CLOUD TEST DEFINITION SYNC (Enables short links containing only test title)
+// ============================================================================
+
+export function getTestDefinitionCloudTopic(testIdOrSlug: string): string {
+  return `tc_v7_test_${cleanTopicKey(testIdOrSlug)}`;
+}
+
+function encodeTestCompact(test: Test): string {
+  const slug = test.slug || slugifyTitle(test.title || test.id || 'test');
+  const id = test.id || slug;
+  const compact = {
+    _tcTest: 1,
+    t: [
+      id,
+      slug,
+      test.title || 'Test',
+      test.subject || 'General',
+      test.instructions || '',
+      test.timeLimitMinutes ?? null,
+      test.totalMarks || 0,
+      test.createdAt || new Date().toISOString(),
+      test.creatorName || 'Instructor',
+      test.creatorUsername || '',
+      test.creatorUid || '',
+      test.creatorEmail || '',
+      (test.questions || []).map(q => [
+        q.id,
+        q.type === 'mcq' ? 0 : q.type === 'true_false' ? 1 : 2,
+        q.questionText || '',
+        Number(q.marks) || 1,
+        q.options || [],
+        q.correctOptionIds || [],
+        q.partialMarkingRule === 'zero' ? 0 : 1,
+        q.correctBoolean === false ? 0 : 1,
+        q.modelAnswer || '',
+      ]),
+    ],
+  };
+  return JSON.stringify(compact);
+}
+
+function decodeTestCompact(rawObj: any): Test | null {
+  try {
+    if (!rawObj) return null;
+    if (rawObj.id && rawObj.title && Array.isArray(rawObj.questions)) {
+      return rawObj as Test;
+    }
+    if (rawObj._tcTest === 1 && Array.isArray(rawObj.t)) {
+      const [
+        id,
+        slug,
+        title,
+        subject,
+        instructions,
+        timeLimitMinutes,
+        totalMarks,
+        createdAt,
+        creatorName,
+        creatorUsername,
+        creatorUid,
+        creatorEmail,
+        rawQuestions,
+      ] = rawObj.t;
+
+      if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null;
+
+      let calcMarks = 0;
+      const questions: Question[] = rawQuestions.map((rq: any, idx: number) => {
+        const qId = String(rq[0] || `q_${idx + 1}`);
+        const qTypeNum = rq[1];
+        const questionText = String(rq[2] || `Question ${idx + 1}`);
+        const marks = Number(rq[3]) || 1;
+        calcMarks += marks;
+
+        if (qTypeNum === 0) {
+          return {
+            id: qId,
+            type: 'mcq',
+            questionText,
+            marks,
+            options: Array.isArray(rq[4]) ? rq[4] : [],
+            correctOptionIds: Array.isArray(rq[5]) ? rq[5] : [],
+            partialMarkingRule: rq[6] === 0 ? 'zero' : 'half',
+          };
+        }
+        if (qTypeNum === 1) {
+          return {
+            id: qId,
+            type: 'true_false',
+            questionText,
+            marks,
+            correctBoolean: rq[7] !== 0,
+          };
+        }
+        return {
+          id: qId,
+          type: 'theory',
+          questionText,
+          marks,
+          modelAnswer: String(rq[8] || ''),
+        };
+      });
+
+      const resolvedSlug = String(slug || slugifyTitle(String(title || id || 'test')));
+      return {
+        id: String(id || resolvedSlug),
+        slug: resolvedSlug,
+        title: String(title || 'Test'),
+        subject: String(subject || 'General'),
+        instructions: String(instructions || ''),
+        timeLimitMinutes: timeLimitMinutes ? Number(timeLimitMinutes) : null,
+        totalMarks: Number(totalMarks) || calcMarks,
+        createdAt: String(createdAt || new Date().toISOString()),
+        creatorName: String(creatorName || 'Instructor'),
+        creatorUsername: creatorUsername ? String(creatorUsername) : undefined,
+        creatorUid: creatorUid ? String(creatorUid) : undefined,
+        creatorEmail: creatorEmail ? String(creatorEmail) : undefined,
+        questions,
+      };
+    }
+  } catch (e) {
+    console.warn('Failed to decode cloud test:', e);
+  }
+  return null;
+}
+
+const inFlightTestPublishes = new Set<string>();
+
+function markTestSyncedLocally(testId: string, signature: string) {
+  try {
+    const raw = localStorage.getItem(SYNCED_TESTS_STORAGE_KEY);
+    const map: Record<string, string> = raw ? JSON.parse(raw) : {};
+    map[testId] = signature;
+    localStorage.setItem(SYNCED_TESTS_STORAGE_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function isTestSyncedLocally(testId: string, signature: string): boolean {
+  try {
+    const raw = localStorage.getItem(SYNCED_TESTS_STORAGE_KEY);
+    if (!raw) return false;
+    const map: Record<string, string> = JSON.parse(raw);
+    return map[testId] === signature;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Publishes a Test definition to the cloud so short links (?test=title) work on any device worldwide.
+ */
+export async function publishTestToCloud(test: Test): Promise<void> {
+  if (!test || !Array.isArray(test.questions) || test.questions.length === 0) return;
+
+  const serialized = encodeTestCompact(test);
+  const testKey = test.id || test.slug || slugifyTitle(test.title);
+  const topics = new Set<string>();
+
+  if (test.id) topics.add(getTestDefinitionCloudTopic(test.id));
+  if (test.slug) topics.add(getTestDefinitionCloudTopic(test.slug));
+  if (test.title) topics.add(getTestDefinitionCloudTopic(test.title));
+  topics.add(GLOBAL_TESTS_TOPIC);
+
+  const chunkId = `test_${testKey}_${Date.now().toString(36)}`;
+  await Promise.allSettled(
+    Array.from(topics).map(topic => postToTopic(topic, serialized, chunkId))
+  );
+
+  markTestSyncedLocally(testKey, `${test.title}_${test.questions.length}_${test.totalMarks}`);
+}
+
+/**
+ * Ensures an existing local test is synced to the cloud in the background without duplicate uploads.
+ */
+export function ensureTestPublishedToCloud(test: Test): void {
+  if (!test || !Array.isArray(test.questions) || test.questions.length === 0) return;
+  const testKey = test.id || test.slug || slugifyTitle(test.title);
+  const signature = `${test.title}_${test.questions.length}_${test.totalMarks}`;
+
+  if (isTestSyncedLocally(testKey, signature) || inFlightTestPublishes.has(testKey)) {
+    return;
+  }
+
+  inFlightTestPublishes.add(testKey);
+  publishTestToCloud(test)
+    .catch(() => {})
+    .finally(() => {
+      inFlightTestPublishes.delete(testKey);
+    });
+}
+
+function parseNtfyLinesToTests(ndjsonText: string): Test[] {
+  if (!ndjsonText || !ndjsonText.trim()) return [];
+  const lines = ndjsonText.split('\n').filter(Boolean);
+  const directTests: Test[] = [];
+  const chunkGroups = new Map<string, { total: number; parts: Map<number, string> }>();
+
+  for (const line of lines) {
+    try {
+      const eventObj = JSON.parse(line);
+      if (eventObj.event !== 'message' || typeof eventObj.message !== 'string') continue;
+      const inner = JSON.parse(eventObj.message);
+      if (!inner) continue;
+
+      if (inner._tcChunk && typeof inner.idx === 'number' && typeof inner.total === 'number') {
+        const group = chunkGroups.get(inner._tcChunk) || {
+          total: inner.total,
+          parts: new Map<number, string>(),
+        };
+        group.parts.set(inner.idx, String(inner.d || ''));
+        chunkGroups.set(inner._tcChunk, group);
+      } else {
+        const decoded = decodeTestCompact(inner);
+        if (decoded) {
+          directTests.push(decoded);
+        }
+      }
+    } catch {}
+  }
+
+  for (const [, group] of chunkGroups.entries()) {
+    if (group.parts.size === group.total) {
+      let fullStr = '';
+      let complete = true;
+      for (let i = 0; i < group.total; i++) {
+        if (!group.parts.has(i)) {
+          complete = false;
+          break;
+        }
+        fullStr += group.parts.get(i);
+      }
+      if (complete) {
+        try {
+          const parsed = JSON.parse(fullStr);
+          const decoded = decodeTestCompact(parsed);
+          if (decoded) {
+            directTests.push(decoded);
+          }
+        } catch {}
+      }
+    }
+  }
+
+  return directTests;
+}
+
+/**
+ * Fetches a Test definition from the cloud by its short title slug or ID.
+ */
+export async function fetchTestFromCloud(testIdOrSlug: string): Promise<Test | null> {
+  if (!testIdOrSlug || !testIdOrSlug.trim()) return null;
+  const cleanId = decodeURIComponent(testIdOrSlug).trim();
+  const targetSlug = slugifyTitle(cleanId);
+
+  const topics = [getTestDefinitionCloudTopic(cleanId), GLOBAL_TESTS_TOPIC];
+  const results = await Promise.allSettled(
+    topics.map(async topic => {
+      const res = await fetch(`${NTFY_BASE_URL}/${topic}/json?poll=1&since=all`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) return [];
+      const text = await res.text();
+      return parseNtfyLinesToTests(text);
+    })
+  );
+
+  const candidates: Test[] = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      for (const t of r.value) {
+        const tIdSlug = slugifyTitle(t.id || '');
+        const tSlug = slugifyTitle(t.slug || '');
+        const tTitleSlug = slugifyTitle(t.title || '');
+        if (
+          t.id.toLowerCase() === cleanId.toLowerCase() ||
+          tIdSlug === targetSlug ||
+          tSlug === targetSlug ||
+          tTitleSlug === targetSlug
+        ) {
+          candidates.push(t);
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  // Return the most recently published matching test
+  return candidates[candidates.length - 1];
 }

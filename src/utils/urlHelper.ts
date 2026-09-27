@@ -1,4 +1,5 @@
 import { Test, Question } from '../types';
+import { ensureTestPublishedToCloud } from './cloudSync';
 
 const LOCAL_TESTS_KEY = 'testcraft_local_tests_v7_clean';
 const DEFAULT_INSTRUCTIONS =
@@ -384,7 +385,8 @@ function findLocalFullTest(testId: string, testInfo?: any): Test | null {
 }
 
 /**
- * Generates a self-contained share link that opens on ANY device, browser profile, or email account.
+ * Generates a short, clean share link containing only the test title slug
+ * that opens on ANY device, browser profile, or email account worldwide.
  */
 export function getStudentShareUrl(
   testId: string,
@@ -393,14 +395,12 @@ export function getStudentShareUrl(
   const baseUrl = getPublicBaseUrl();
   const slug = getTestSlug(testId, testInfo);
   const fullTest = findLocalFullTest(testId, testInfo);
-  const encodedPayload = fullTest ? encodeTestToUrlParam(fullTest) : '';
+  if (fullTest) {
+    ensureTestPublishedToCloud(fullTest);
+  }
 
   if (typeof window !== 'undefined' && window.location.hostname.includes('github.io')) {
-    return encodedPayload
-      ? `${baseUrl}/?test=${encodeURIComponent(slug)}&d=${encodedPayload}`
-      : `${baseUrl}/?test=${encodeURIComponent(slug)}`;
+    return `${baseUrl}/?test=${encodeURIComponent(slug)}`;
   }
-  return encodedPayload
-    ? `${baseUrl}/test/${encodeURIComponent(slug)}?d=${encodedPayload}`
-    : `${baseUrl}/test/${encodeURIComponent(slug)}`;
+  return `${baseUrl}/test/${encodeURIComponent(slug)}`;
 }
