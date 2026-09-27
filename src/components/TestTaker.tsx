@@ -169,50 +169,44 @@ export const TestTaker: React.FC<TestTakerProps> = ({
     };
   }, [hasStarted, secondsRemaining]);
 
-  // Answer selection handlers
+  // Answer selection handlers (answers remain unlocked and changeable until test submission)
   const handleSelectOption = (questionId: string, optionId: string, requiredCount: number) => {
     const current = answers.get(questionId);
-    if (!current || current.isLocked) return;
+    if (!current) return;
 
     let selected = current.selectedOptionIds ? [...current.selectedOptionIds] : [];
 
     if (requiredCount === 1) {
-      // Single choice MCQ: select and lock immediately
+      // Single choice MCQ: switch selection freely
       selected = [optionId];
-      const updated: StudentAnswer = {
-        ...current,
-        selectedOptionIds: selected,
-        isLocked: true, // Immediately unclickable and locked!
-      };
-      setAnswers(new Map(answers.set(questionId, updated)));
     } else {
-      // Multiple choice MCQ (e.g. 2 options):
+      // Multiple choice MCQ (e.g. 2 options): toggle or switch selection freely
       if (selected.includes(optionId)) {
-        // Option already clicked
-        return;
+        selected = selected.filter(id => id !== optionId);
+      } else if (selected.length < requiredCount) {
+        selected.push(optionId);
+      } else {
+        // Replace earliest selection with the newly clicked option
+        selected = [...selected.slice(1), optionId];
       }
-
-      selected.push(optionId);
-      const isNowComplete = selected.length >= requiredCount;
-
-      const updated: StudentAnswer = {
-        ...current,
-        selectedOptionIds: selected,
-        isLocked: isNowComplete, // Lock when target count (e.g. 2) is reached
-      };
-      setAnswers(new Map(answers.set(questionId, updated)));
     }
+
+    const updated: StudentAnswer = {
+      ...current,
+      selectedOptionIds: selected,
+      isLocked: false,
+    };
+    setAnswers(new Map(answers.set(questionId, updated)));
   };
 
   const handleSelectTrueFalse = (questionId: string, value: boolean) => {
     const current = answers.get(questionId);
-    if (!current || current.isLocked) return;
+    if (!current) return;
 
-    // Immediately locks as requested by user
     const updated: StudentAnswer = {
       ...current,
       selectedBoolean: value,
-      isLocked: true,
+      isLocked: false,
     };
     setAnswers(new Map(answers.set(questionId, updated)));
   };
@@ -392,10 +386,9 @@ export const TestTaker: React.FC<TestTakerProps> = ({
                 Important Examination Rules:
               </p>
               <ul className="list-disc list-inside space-y-0.5 text-indigo-800">
-                <li>When you click an option, it turns green and locks in as your submitted answer.</li>
-                <li>Answers cannot be modified once chosen to preserve test integrity.</li>
-                <li>For multi-correct MCQs (e.g. 2 correct), select all required options to lock.</li>
-                <li>If timed, test will automatically submit when the countdown reaches zero.</li>
+                <li>Click any option to select your answer; you can change your selection anytime before submitting.</li>
+                <li>For multi-correct MCQs (e.g. 2 correct), you can select, unselect, or switch options freely.</li>
+                <li>If timed, the test will automatically submit when the countdown reaches zero.</li>
               </ul>
             </div>
 
@@ -544,14 +537,11 @@ export const TestTaker: React.FC<TestTakerProps> = ({
                         key={opt.id}
                         type="button"
                         id={`btn-q${qIndex + 1}-opt${optIndex + 1}`}
-                        disabled={studentAns.isLocked}
                         onClick={() => handleSelectOption(question.id, opt.id, requiredCount)}
-                        className={`w-full text-left p-4 rounded-xl border flex items-center gap-3.5 transition-all text-sm font-medium ${
+                        className={`w-full text-left p-4 rounded-xl border flex items-center gap-3.5 transition-all text-sm font-medium cursor-pointer ${
                           isSelected
                             ? 'bg-emerald-600 text-white border-emerald-600 shadow-md font-semibold'
-                            : studentAns.isLocked
-                            ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-75'
-                            : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/40 cursor-pointer'
+                            : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/40'
                         }`}
                       >
                         <div
@@ -579,9 +569,9 @@ export const TestTaker: React.FC<TestTakerProps> = ({
                     );
                   })}
 
-                  {isMultiple && !studentAns.isLocked && (
+                  {isMultiple && (studentAns.selectedOptionIds?.length || 0) < requiredCount && (
                     <p className="text-xs text-amber-700 font-medium mt-1">
-                      Pick {requiredCount - (studentAns.selectedOptionIds?.length || 0)} more option(s) to finalize and lock your answer.
+                      Select {requiredCount - (studentAns.selectedOptionIds?.length || 0)} more option(s) (you can change your choices anytime before submitting).
                     </p>
                   )}
                 </div>
@@ -598,14 +588,11 @@ export const TestTaker: React.FC<TestTakerProps> = ({
                         key={String(boolVal)}
                         type="button"
                         id={`btn-q${qIndex + 1}-tf-${boolVal}`}
-                        disabled={studentAns.isLocked}
                         onClick={() => handleSelectTrueFalse(question.id, boolVal)}
-                        className={`p-4 rounded-xl border text-center font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                        className={`p-4 rounded-xl border text-center font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
                           isSelected
                             ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
-                            : studentAns.isLocked
-                            ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-75'
-                            : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/40 cursor-pointer'
+                            : 'bg-white border-slate-200 text-slate-800 hover:border-emerald-400 hover:bg-emerald-50/40'
                         }`}
                       >
                         {isSelected && <Check className="w-4 h-4 stroke-[3]" />}
