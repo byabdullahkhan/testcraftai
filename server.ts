@@ -1462,12 +1462,6 @@ app.get('/sitemap.xml', (_req, res) => {
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://testcraftai.online/article.html</loc>
-    <lastmod>${nowIso}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
     <loc>https://www.testcraftai.online/</loc>
     <lastmod>${nowIso}</lastmod>
     <changefreq>daily</changefreq>
