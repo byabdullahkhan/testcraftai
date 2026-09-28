@@ -6,6 +6,7 @@ import {
   cleanUsername,
 } from '../types';
 import { extractAndSyncTestFromUrl } from '../utils/urlHelper';
+import { evaluateTheoryConceptuallyFallback } from '../utils/theoryEvaluator';
 import {
   publishSubmissionToCloud,
   fetchSubmissionsFromCloud,
@@ -664,7 +665,12 @@ export const apiService = {
     let totalScore = 0;
     const evaluations: QuestionEvaluation[] = [];
 
-    test.questions.forEach((q, qIndex) => {
+    const AI_EVAL_ENDPOINT = isStaticHost()
+      ? 'https://ais-pre-q66nfgjf7gsqim6h6u6rbi-912419625088.asia-southeast1.run.app/api/evaluate-theory'
+      : '/api/evaluate-theory';
+
+    for (let qIndex = 0; qIndex < test.questions.length; qIndex++) {
+      const q = test.questions[qIndex];
       const ans = answersMap.get(q.id) || answersMap.get(`q_${qIndex + 1}`) || answersList[qIndex];
       const maxMarks = Number(q.marks) || 0;
 
@@ -700,7 +706,7 @@ export const apiService = {
             studentAnswerDisplay: studentDisplayText,
             correctAnswerDisplay: correctDisplayText,
           });
-          return;
+          continue;
         }
 
         const isExactMatch =
@@ -793,45 +799,58 @@ export const apiService = {
       } else if (q.type === 'theory') {
         const studentText = (ans?.theoryAnswer || '').trim();
         const modelText = (q.modelAnswer || '').trim();
+
         let marksAwarded = 0;
         let status: 'correct' | 'partial' | 'wrong' = 'wrong';
-        let ratio = 0;
+        let theoryFeedback = evaluateTheoryConceptuallyFallback(
+          q.questionText,
+          modelText,
+          studentText,
+          maxMarks
+        ).feedback;
 
         if (studentText) {
-          const modelTokens = new Set<string>(
-            modelText
-              .toLowerCase()
-              .replace(/[^a-z0-9\s]/g, '')
-              .split(/\s+/)
-              .filter(w => w.length > 3)
-          );
-          const studentTokens = new Set<string>(
-            studentText
-              .toLowerCase()
-              .replace(/[^a-z0-9\s]/g, '')
-              .split(/\s+/)
-              .filter((w: string) => w.length > 3)
-          );
+          let gradedByLiveAI = false;
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 7000);
+            const aiRes = await fetch(AI_EVAL_ENDPOINT, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                questionText: q.questionText,
+                modelAnswer: modelText,
+                studentAnswer: studentText,
+                maxMarks,
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (aiRes.ok) {
+              const aiData = await aiRes.json();
+              if (aiData && typeof aiData.marks === 'number' && aiData.feedback) {
+                marksAwarded = aiData.marks;
+                theoryFeedback = aiData.feedback;
+                if (marksAwarded >= maxMarks * 0.8) status = 'correct';
+                else if (marksAwarded > 0) status = 'partial';
+                else status = 'wrong';
+                gradedByLiveAI = true;
+              }
+            }
+          } catch {
+            // Fall back to semantic conceptual evaluator below
+          }
 
-          let matchCount = 0;
-          studentTokens.forEach(token => {
-            if (modelTokens.has(token)) matchCount++;
-          });
-
-          const overlapRatio =
-            modelTokens.size > 0 ? Math.min(1, matchCount / Math.max(1, modelTokens.size * 0.55)) : 0.7;
-          const lengthFactor = Math.min(1, studentText.length / Math.max(25, modelText.length * 0.4));
-          ratio = Math.min(1, overlapRatio * 0.65 + lengthFactor * 0.35);
-
-          if (ratio >= 0.75) {
-            marksAwarded = Math.round(maxMarks * Math.max(0.85, ratio) * 10) / 10;
-            status = 'correct';
-          } else if (ratio >= 0.35) {
-            marksAwarded = Math.round(maxMarks * ratio * 10) / 10;
-            status = 'partial';
-          } else {
-            marksAwarded = Math.round(maxMarks * Math.max(0, ratio * 0.5) * 10) / 10;
-            status = marksAwarded > 0 ? 'partial' : 'wrong';
+          if (!gradedByLiveAI) {
+            const fallbackResult = evaluateTheoryConceptuallyFallback(
+              q.questionText,
+              modelText,
+              studentText,
+              maxMarks
+            );
+            marksAwarded = fallbackResult.marks;
+            status = fallbackResult.status;
+            theoryFeedback = fallbackResult.feedback;
           }
         }
 
@@ -845,28 +864,10 @@ export const apiService = {
           status,
           studentAnswerDisplay: studentText || 'No answer submitted',
           correctAnswerDisplay: q.modelAnswer || 'Instructor model answer',
-          theoryFeedback: {
-            conceptMatchPercentage: Math.round(ratio * 100),
-            accuracyScore: Math.round(ratio * 10 * 10) / 10,
-            conceptualVerdict:
-              status === 'correct'
-                ? 'Demonstrates strong conceptual understanding'
-                : status === 'partial'
-                ? 'Partial conceptual coverage with key ideas'
-                : 'Insufficient conceptual coverage',
-            strengths:
-              status === 'wrong'
-                ? 'Attempt recorded.'
-                : 'Covered core concepts aligned with the reference model.',
-            missingPoints:
-              status === 'correct'
-                ? 'All primary concepts addressed.'
-                : 'Review the reference answer for additional conceptual details.',
-            rubricNotes: 'Evaluated via conceptual alignment and key terminology.',
-          },
+          theoryFeedback,
         });
       }
-    });
+    }
 
     const maxScore = test.totalMarks || evaluations.reduce((a, e) => a + e.maxMarks, 0);
     const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;

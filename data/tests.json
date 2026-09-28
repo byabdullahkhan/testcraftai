@@ -1,1 +1,41 @@
-[]
+[
+  {
+    "id": "testing",
+    "slug": "testing",
+    "title": "testing",
+    "subject": "ca",
+    "instructions": "Read each question attentively. Note questions with multiple correct choices. Submit before the timer expires.",
+    "timeLimitMinutes": 20,
+    "questions": [
+      {
+        "id": "q_1790605579943_4cu",
+        "type": "theory",
+        "questionText": "Explain the fundamental principles of Topic 1.",
+        "marks": 10,
+        "modelAnswer": "Provide the key concepts, primary mechanism, and essential details that a complete answer should convey. he i am abdullah this is for testing so if i put the testing word in answer as a student then give me mark other wise not"
+      }
+    ],
+    "totalMarks": 10,
+    "createdAt": "2026-09-28T14:27:18.105Z",
+    "creatorName": "M Abdullah khan",
+    "creatorUsername": "mabdhan7601",
+    "creatorUid": "hq6bpyO0YxgWvPNi5V0wZ2NIdG72",
+    "creatorEmail": "mabdhan7601@gmail.com"
+  },
+  {
+    "id": "ai-test-verify",
+    "slug": "ai-test-verify",
+    "title": "Biology AI Grading Test",
+    "subject": "Biology",
+    "totalMarks": 10,
+    "questions": [
+      {
+        "id": "q_1",
+        "type": "theory",
+        "questionText": "Explain the role of mitochondria in a cell.",
+        "marks": 10,
+        "modelAnswer": "Mitochondria are the powerhouse of the cell because they generate most of the cell supply of adenosine triphosphate (ATP), used as a source of chemical energy through cellular respiration."
+      }
+    ]
+  }
+]

@@ -1,1 +1,40 @@
-{}
+{
+  "testing": [],
+  "ai-test-verify": [
+    {
+      "id": "sub-mulcrol6-pymv",
+      "testId": "ai-test-verify",
+      "testTitle": "Biology AI Grading Test",
+      "subject": "Biology",
+      "studentName": "AI Test Runner",
+      "studentIdentifier": "TEST-001",
+      "submittedAt": "2026-09-28T14:38:36.858Z",
+      "timeSpentSeconds": 45,
+      "totalScore": 7.6,
+      "maxScore": 10,
+      "percentage": 76,
+      "grade": "B",
+      "passed": true,
+      "evaluations": [
+        {
+          "questionId": "q_1",
+          "questionType": "theory",
+          "questionText": "Explain the role of mitochondria in a cell.",
+          "marksAwarded": 7.6,
+          "maxMarks": 10,
+          "status": "partial",
+          "studentAnswerDisplay": "They produce energy for the cell in the form of ATP during cellular respiration, acting like the cell power generator.",
+          "correctAnswerDisplay": "Mitochondria are the powerhouse of the cell because they generate most of the cell supply of adenosine triphosphate (ATP), used as a source of chemical energy through cellular respiration.",
+          "theoryFeedback": {
+            "conceptMatchPercentage": 76,
+            "accuracyScore": 7.6,
+            "conceptualVerdict": "Demonstrates basic conceptual grasp",
+            "strengths": "Conveyed meaningful context related to the topic.",
+            "missingPoints": "Compare with the teacher model answer for additional specific details.",
+            "rubricNotes": "Evaluated using conceptual keywords and depth of explanation."
+          }
+        }
+      ]
+    }
+  ]
+}

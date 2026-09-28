@@ -4,6 +4,7 @@ import fs from 'fs';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import { Test, TestSubmission, QuestionEvaluation, TheoryFeedback, Question } from './src/types';
+import { evaluateTheoryConceptuallyFallback } from './src/utils/theoryEvaluator';
 
 const app = express();
 const PORT = 3000;
@@ -248,10 +249,9 @@ async function evaluateTheoryWithAI(
     };
   }
 
-  // If Gemini API Key is available, perform deep conceptual evaluation
+  // If Gemini API Key is available, perform deep conceptual evaluation across available Gemini models
   if (geminiApiKey) {
-    try {
-      const prompt = `You are an expert, fair, and encouraging academic evaluator.
+    const prompt = `You are an expert, fair, and encouraging academic evaluator.
 Task: Grade a student's theory response by comparing it conceptually to the teacher's model answer.
 
 Question: "${questionText}"
@@ -261,119 +261,134 @@ Teacher's Model Answer (Reference concept): "${modelAnswer}"
 Student's Written Response: "${trimmedAnswer}"
 
 Important Instructions:
-1. Focus on Conceptual Understanding: Do NOT penalize the student just because they used different phrasing, casual wording, or simpler sentence structures compared to the teacher's model.
+1. Focus on Conceptual Understanding: Do NOT penalize the student just because they used different phrasing, casual wording, synonyms, or simpler sentence structures compared to the teacher's model.
 2. If the student clearly grasps and communicates the underlying principles, mechanisms, and key facts, award full or near-full marks.
 3. If they partially explained the idea with minor omissions, award proportional partial marks.
-4. If there are severe misconceptions or irrelevant content, deduct accordingly.
+4. If there are severe misconceptions, contradictions, or irrelevant content, deduct accordingly.
 5. Provide a constructive feedback summary.
 
 Respond strictly in valid JSON format matching the schema.`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              marksAwarded: {
-                type: Type.NUMBER,
-                description: `Marks awarded to student, between 0 and ${maxMarks}. Can have 1 decimal place.`,
+    const candidateModels = [
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3.8-flash',
+      'gemini-flash-latest',
+    ];
+
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                marksAwarded: {
+                  type: Type.NUMBER,
+                  description: `Marks awarded to student, between 0 and ${maxMarks}. Can have 1 decimal place.`,
+                },
+                conceptMatchPercentage: {
+                  type: Type.NUMBER,
+                  description: 'Percentage match of conceptual coverage (0 to 100).',
+                },
+                accuracyScore: {
+                  type: Type.NUMBER,
+                  description: 'Score out of 10 for conceptual correctness and clarity.',
+                },
+                conceptualVerdict: {
+                  type: Type.STRING,
+                  description:
+                    'Brief verdict on conceptual understanding (e.g. Excellent grasp, Solid understanding, Partial grasp, Incomplete).',
+                },
+                strengths: {
+                  type: Type.STRING,
+                  description: 'Key concepts or correct facts the student articulated well.',
+                },
+                missingPoints: {
+                  type: Type.STRING,
+                  description:
+                    'Any critical concept or detail from the model answer that was missing or unclear.',
+                },
+                rubricNotes: {
+                  type: Type.STRING,
+                  description: 'Friendly constructive explanation of how the score was calculated.',
+                },
               },
-              conceptMatchPercentage: {
-                type: Type.NUMBER,
-                description: 'Percentage match of conceptual coverage (0 to 100).',
-              },
-              accuracyScore: {
-                type: Type.NUMBER,
-                description: 'Score out of 10 for conceptual correctness and clarity.',
-              },
-              conceptualVerdict: {
-                type: Type.STRING,
-                description: 'Brief verdict on conceptual understanding (e.g. Excellent grasp, Solid understanding, Partial grasp, Incomplete).',
-              },
-              strengths: {
-                type: Type.STRING,
-                description: 'Key concepts or correct facts the student articulated well.',
-              },
-              missingPoints: {
-                type: Type.STRING,
-                description: 'Any critical concept or detail from the model answer that was missing or unclear.',
-              },
-              rubricNotes: {
-                type: Type.STRING,
-                description: 'Friendly constructive explanation of how the score was calculated.',
-              },
+              required: [
+                'marksAwarded',
+                'conceptMatchPercentage',
+                'accuracyScore',
+                'conceptualVerdict',
+                'strengths',
+                'missingPoints',
+                'rubricNotes',
+              ],
             },
-            required: [
-              'marksAwarded',
-              'conceptMatchPercentage',
-              'accuracyScore',
-              'conceptualVerdict',
-              'strengths',
-              'missingPoints',
-              'rubricNotes',
-            ],
           },
-        },
-      });
+        });
 
-      const parsed = JSON.parse(response.text || '{}');
-      const awarded = Math.min(
-        maxMarks,
-        Math.max(0, Number(parsed.marksAwarded ?? (maxMarks * 0.7)))
-      );
+        const parsed = JSON.parse(response.text || '{}');
+        const awarded = Math.min(
+          maxMarks,
+          Math.max(0, Number(parsed.marksAwarded ?? maxMarks * 0.7))
+        );
 
-      return {
-        marks: Math.round(awarded * 10) / 10,
-        feedback: {
-          conceptMatchPercentage: Math.min(100, Math.max(0, Math.round(Number(parsed.conceptMatchPercentage || 70)))),
-          accuracyScore: Math.min(10, Math.max(0, Math.round(Number(parsed.accuracyScore || 7) * 10) / 10)),
-          conceptualVerdict: parsed.conceptualVerdict || 'Conceptually evaluated',
-          strengths: parsed.strengths || 'Articulated core concept directly.',
-          missingPoints: parsed.missingPoints || 'Could expand further on technical nuances.',
-          rubricNotes: parsed.rubricNotes || 'Graded on conceptual alignment with teacher model answer.',
-        },
-      };
-    } catch (err) {
-      console.error('Gemini grading error, applying fallback conceptual analyzer:', err);
+        return {
+          marks: Math.round(awarded * 10) / 10,
+          feedback: {
+            conceptMatchPercentage: Math.min(
+              100,
+              Math.max(0, Math.round(Number(parsed.conceptMatchPercentage ?? 70)))
+            ),
+            accuracyScore: Math.min(
+              10,
+              Math.max(0, Math.round(Number(parsed.accuracyScore ?? 7) * 10) / 10)
+            ),
+            conceptualVerdict: parsed.conceptualVerdict || 'Conceptually evaluated',
+            strengths: parsed.strengths || 'Articulated core concept directly.',
+            missingPoints:
+              parsed.missingPoints || 'All primary concepts addressed.',
+            rubricNotes:
+              parsed.rubricNotes ||
+              'Graded by AI on conceptual alignment with the teacher model answer.',
+          },
+        };
+      } catch (err) {
+        // Try next Gemini model in candidateModels
+      }
     }
   }
 
-  // Fallback conceptual analyzer if API key is not active or during offline test
-  const modelTokens = new Set(
-    modelAnswer.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3)
+  // Intelligent semantic & synonym conceptual analyzer fallback
+  const fallback = evaluateTheoryConceptuallyFallback(
+    questionText,
+    modelAnswer,
+    trimmedAnswer,
+    maxMarks
   );
-  const studentTokens = new Set(
-    trimmedAnswer.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3)
-  );
-
-  let matchCount = 0;
-  for (const token of studentTokens) {
-    if (modelTokens.has(token)) {
-      matchCount++;
-    }
-  }
-
-  const coverageRatio = modelTokens.size > 0 ? Math.min(1, matchCount / Math.max(3, modelTokens.size * 0.45)) : 0.6;
-  const lengthRatio = Math.min(1, trimmedAnswer.split(/\s+/).length / 15);
-  const combinedScore = Math.min(1, coverageRatio * 0.7 + lengthRatio * 0.3);
-  const awarded = Math.round(maxMarks * combinedScore * 10) / 10;
-  const matchPct = Math.round(combinedScore * 100);
-
   return {
-    marks: awarded,
-    feedback: {
-      conceptMatchPercentage: matchPct,
-      accuracyScore: Math.round(combinedScore * 10 * 10) / 10,
-      conceptualVerdict: matchPct >= 80 ? 'Thorough conceptual understanding' : matchPct >= 50 ? 'Demonstrates basic conceptual grasp' : 'Key concepts omitted',
-      strengths: 'Conveyed meaningful context related to the topic.',
-      missingPoints: matchPct < 80 ? 'Compare with the teacher model answer for additional specific details.' : 'Comprehensive response provided.',
-      rubricNotes: 'Evaluated using conceptual keywords and depth of explanation.',
-    },
+    marks: fallback.marks,
+    feedback: fallback.feedback,
   };
 }
+
+// Public CORS endpoint for evaluating theory questions via Gemini AI (used by testcraftai.online)
+app.post('/api/evaluate-theory', async (req, res) => {
+  try {
+    const { questionText, modelAnswer, studentAnswer, maxMarks } = req.body || {};
+    const result = await evaluateTheoryWithAI(
+      String(questionText || ''),
+      String(modelAnswer || ''),
+      String(studentAnswer || ''),
+      Number(maxMarks) || 5
+    );
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Evaluation failed' });
+  }
+});
 
 // ------------------------------------
 // API ROUTES: CUSTOM USERNAME/PASSWORD AUTH
@@ -1445,6 +1460,12 @@ app.get('/sitemap.xml', (_req, res) => {
     <lastmod>${nowIso}</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://testcraftai.online/article.html</loc>
+    <lastmod>${nowIso}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://www.testcraftai.online/</loc>
