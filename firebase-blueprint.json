@@ -1,0 +1,173 @@
+{
+  "entities": {
+    "Test": {
+      "title": "Test",
+      "description": "An academic test paper created by an authenticated instructor.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique slug identifier for the test.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "slug": {
+          "type": "string",
+          "description": "URL-friendly short title slug.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable title of the test.",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "subject": {
+          "type": "string",
+          "description": "Subject or course name.",
+          "maxLength": 200
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Instructions shown to students before starting the test.",
+          "maxLength": 5000
+        },
+        "timeLimitMinutes": {
+          "type": "number",
+          "description": "Optional countdown duration in minutes."
+        },
+        "totalMarks": {
+          "type": "number",
+          "description": "Total maximum marks for the test."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when the test was created.",
+          "maxLength": 64
+        },
+        "creatorUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the instructor who created the test.",
+          "maxLength": 128
+        },
+        "creatorName": {
+          "type": "string",
+          "description": "Display name of the instructor.",
+          "maxLength": 200
+        },
+        "creatorUsername": {
+          "type": "string",
+          "description": "Username handle of the instructor.",
+          "maxLength": 128
+        },
+        "questions": {
+          "type": "array",
+          "description": "List of questions in the test (up to 200 questions)."
+        }
+      },
+      "required": ["id", "slug", "title", "totalMarks", "createdAt", "creatorUid", "questions"]
+    },
+    "TestSubmission": {
+      "title": "TestSubmission",
+      "description": "A graded student submission for a specific test.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the submission.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "testId": {
+          "type": "string",
+          "description": "ID/slug of the parent test.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "testTitle": {
+          "type": "string",
+          "description": "Title of the test.",
+          "maxLength": 300
+        },
+        "subject": {
+          "type": "string",
+          "description": "Subject of the test.",
+          "maxLength": 200
+        },
+        "studentName": {
+          "type": "string",
+          "description": "Name of the student who took the test.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "studentIdentifier": {
+          "type": "string",
+          "description": "Optional roll number or student ID.",
+          "maxLength": 128
+        },
+        "submittedAt": {
+          "type": "string",
+          "description": "ISO timestamp of submission.",
+          "maxLength": 64
+        },
+        "timeSpentSeconds": {
+          "type": "number",
+          "description": "Seconds spent taking the test."
+        },
+        "totalScore": {
+          "type": "number",
+          "description": "Total marks awarded to the student."
+        },
+        "maxScore": {
+          "type": "number",
+          "description": "Total possible marks on the test."
+        },
+        "percentage": {
+          "type": "number",
+          "description": "Percentage score (0-100)."
+        },
+        "grade": {
+          "type": "string",
+          "description": "Letter grade awarded.",
+          "maxLength": 16
+        },
+        "passed": {
+          "type": "boolean",
+          "description": "Whether the student passed the test."
+        },
+        "creatorUid": {
+          "type": "string",
+          "description": "UID of the test creator for owner queries.",
+          "maxLength": 128
+        },
+        "evaluations": {
+          "type": "array",
+          "description": "Per-question grading evaluations."
+        }
+      },
+      "required": [
+        "id",
+        "testId",
+        "studentName",
+        "submittedAt",
+        "totalScore",
+        "maxScore",
+        "percentage",
+        "grade",
+        "passed",
+        "evaluations"
+      ]
+    }
+  },
+  "firestore": {
+    "/tests/{testId}": {
+      "schema": { "$ref": "#/entities/Test" },
+      "description": "Stores test papers. Publicly readable by testId for students with the short link; writable and listable only by the authenticated creator."
+    },
+    "/tests/{testId}/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/TestSubmission" },
+      "description": "Stores graded student submissions under each test. Students can create a submission once and read their own submission by ID; only the test creator can list or delete submissions."
+    }
+  }
+}

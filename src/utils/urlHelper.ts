@@ -399,7 +399,11 @@ export function getStudentShareUrl(
     ensureTestPublishedToCloud(fullTest);
   }
 
-  if (typeof window !== 'undefined' && window.location.hostname.includes('github.io')) {
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname.includes('github.io') ||
+      window.location.hostname.includes('testcraftai.online'))
+  ) {
     return `${baseUrl}/?test=${encodeURIComponent(slug)}`;
   }
   return `${baseUrl}/test/${encodeURIComponent(slug)}`;

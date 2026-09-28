@@ -116,7 +116,10 @@ function AppContent() {
       const parsed = new URL(shareUrl, window.location.origin);
       window.history.pushState({}, '', `${parsed.pathname}${parsed.search}${parsed.hash}`);
     } catch {
-      if (window.location.hostname.includes('github.io')) {
+      if (
+        window.location.hostname.includes('github.io') ||
+        window.location.hostname.includes('testcraftai.online')
+      ) {
         const cleanPath = window.location.pathname.replace(/\/test\/.*$/, '');
         window.history.pushState({}, '', `${cleanPath}?test=${encodeURIComponent(resolvedId)}`);
       } else {

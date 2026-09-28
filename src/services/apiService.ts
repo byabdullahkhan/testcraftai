@@ -13,6 +13,9 @@ import {
   publishTestToCloud,
   ensureTestPublishedToCloud,
   fetchTestFromCloud,
+  fetchUserTestsFromFirestore,
+  deleteTestFromFirestore,
+  checkStudentAttemptInFirestore,
 } from '../utils/cloudSync';
 
 const LOCAL_TESTS_KEY = 'testcraft_local_tests_v7_clean';
@@ -20,7 +23,9 @@ const LOCAL_SUBMISSIONS_KEY_PREFIX = 'testcraft_local_submissions_v7_';
 const LOCAL_USERS_KEY = 'testcraft_local_users_v7_clean';
 
 const isStaticHost = (): boolean =>
-  typeof window !== 'undefined' && window.location.hostname.includes('github.io');
+  typeof window !== 'undefined' &&
+  (window.location.hostname.includes('github.io') ||
+    window.location.hostname.includes('testcraftai.online'));
 
 function slugifyTitle(title: string): string {
   if (!title) return 'test';
@@ -244,6 +249,17 @@ export const apiService = {
       }
     }
 
+    // Fetch tests permanently stored in Cloud Firestore for this Google account
+    let firestoreTests: Test[] = [];
+    if (userUid) {
+      firestoreTests = await fetchUserTestsFromFirestore(userUid).catch(() => []);
+      firestoreTests.forEach(ft => {
+        if (ft && Array.isArray(ft.questions) && ft.questions.length > 0) {
+          saveLocalTest(ft);
+        }
+      });
+    }
+
     let localTests = getStoredLocalTests();
     if (normUname) {
       localTests = localTests.filter(
@@ -273,7 +289,7 @@ export const apiService = {
     }
 
     const combinedMap = new Map<string, any>();
-    [...serverTests, ...localTests].forEach(t => {
+    [...firestoreTests, ...serverTests, ...localTests].forEach(t => {
       if (!t || !t.id) return;
       const matchesUser = normUname
         ? (t.creatorUsername &&
@@ -505,6 +521,19 @@ export const apiService = {
       } catch {
         // Fallback to cloud & local
       }
+    }
+
+    // Check Cloud Firestore deterministic submission ID first (prevents retakes across browsers/devices)
+    const firestoreExisting = await checkStudentAttemptInFirestore(testId, name, rollNo).catch(
+      () => null
+    );
+    if (firestoreExisting) {
+      saveLocalSubmission(testId, firestoreExisting);
+      return {
+        hasAttempted: true,
+        submissionId: firestoreExisting.id,
+        submittedAt: firestoreExisting.submittedAt,
+      };
     }
 
     const cloudSubs = await fetchSubmissionsFromCloud(testId).catch(() => []);
@@ -1147,6 +1176,8 @@ export const apiService = {
     const local = getStoredLocalTests().filter(t => t.id !== testId && t.slug !== testId);
     localStorage.setItem(LOCAL_TESTS_KEY, JSON.stringify(local));
     localStorage.removeItem(`${LOCAL_SUBMISSIONS_KEY_PREFIX}${testId}`);
+
+    await deleteTestFromFirestore(testId).catch(() => {});
 
     if (!isStaticHost()) {
       try {

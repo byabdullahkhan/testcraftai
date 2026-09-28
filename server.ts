@@ -1372,12 +1372,90 @@ app.get('/api/submissions/:submissionId', (req, res) => {
 });
 
 // ------------------------------------
+// 9. BACKEND SEO, KEYWORDS, SITEMAP & ROBOTS ENDPOINTS
+// ------------------------------------
+const SEO_KEYWORDS = [
+  'TestCraft AI',
+  'testcraftai.online',
+  'testcraftai',
+  'online test maker',
+  'AI test creator',
+  'free online quiz maker',
+  'MCQ test generator',
+  'AI theory answer evaluator',
+  'online exam platform for teachers',
+  'automatic test grading software',
+  'create online test with link',
+  'student exam portal',
+  'shareable test link generator',
+  'conceptual answer grading AI',
+  'true false test maker',
+  'digital classroom assessment tool',
+  'instant student report card',
+  'online quiz builder free',
+  'academic exam creator',
+  'live test results dashboard',
+  'smart exam evaluator',
+];
+
+app.get('/api/seo/keywords', (_req, res) => {
+  res.json({
+    siteName: 'TestCraft AI',
+    canonicalUrl: 'https://testcraftai.online/',
+    title: 'TestCraft AI – Free Online Test Maker, MCQ Builder & AI Exam Grader',
+    description:
+      'Create customizable online tests with MCQs, True/False, and AI-evaluated theory questions on TestCraft AI (testcraftai.online). Share instant student test links and track live graded reports.',
+    keywords: SEO_KEYWORDS,
+  });
+});
+
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(
+    `User-agent: *\nAllow: /\n\nSitemap: https://testcraftai.online/sitemap.xml\n`
+  );
+});
+
+app.get('/sitemap.xml', (_req, res) => {
+  const nowIso = new Date().toISOString();
+  const publicTestUrls = Array.from(testsMap.values())
+    .slice(0, 100)
+    .map(
+      t => `  <url>
+    <loc>https://testcraftai.online/?test=${encodeURIComponent(t.slug || t.id)}</loc>
+    <lastmod>${t.createdAt || nowIso}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>`
+    )
+    .join('\n');
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://testcraftai.online/</loc>
+    <lastmod>${nowIso}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://www.testcraftai.online/</loc>
+    <lastmod>${nowIso}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+${publicTestUrls}
+</urlset>`;
+
+  res.type('application/xml').send(xml);
+});
+
+// ------------------------------------
 // SERVER START & VITE MIDDLEWARE
 // ------------------------------------
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);

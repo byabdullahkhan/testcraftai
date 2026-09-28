@@ -136,16 +136,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => setMenuOpen(!menuOpen)}
                   className="flex items-center gap-2 p-1.5 pl-2 rounded-2xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 transition-all cursor-pointer shadow-2xs"
                 >
-                  <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white font-bold text-xs flex items-center justify-center uppercase">
-                    {(user.username || user.displayName || 'U').charAt(0)}
-                  </div>
+                  {user.photoURL ? (
+                    <img
+                      src={user.photoURL}
+                      alt={user.displayName || 'User'}
+                      referrerPolicy="no-referrer"
+                      className="w-7 h-7 rounded-xl object-cover border border-slate-200"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white font-bold text-xs flex items-center justify-center uppercase">
+                      {(user.displayName || user.username || 'U').charAt(0)}
+                    </div>
+                  )}
 
-                  <div className="text-left hidden sm:block pr-1 max-w-[140px]">
+                  <div className="text-left hidden sm:block pr-1 max-w-[150px]">
                     <span className="text-xs font-bold text-slate-800 truncate block">
                       {user.displayName || user.username}
                     </span>
                     <span className="text-[10px] text-indigo-600 font-semibold truncate block font-mono">
-                      {formatUsername(userProfile?.username || user.username)}
+                      {user.email || formatUsername(userProfile?.username || user.username)}
                     </span>
                   </div>
 

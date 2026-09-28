@@ -1,0 +1,12 @@
+{
+  "projectId": "testcraftai-online",
+  "appId": "1:181385814658:web:78a09649130f3f43eb0a9b",
+  "apiKey": "AIzaSyB23qgbMW9ILqvpMfd1c8R2hwXJdoDFmOI",
+  "authDomain": "testcraftai-online.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-testcraftai-f70b3c24-a993-48a1-a288-3aed1c6b3ab5",
+  "storageBucket": "testcraftai-online.firebasestorage.app",
+  "messagingSenderId": "181385814658",
+  "measurementId": "",
+  "oAuthClientId": "181385814658-5m257m4ua9rcric0qp1osju21d41i78b.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
+}

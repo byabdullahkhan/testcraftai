@@ -1,3 +1,15 @@
+import {
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  onSnapshot,
+} from 'firebase/firestore';
+import { auth, db, OperationType, handleFirestoreError } from '../firebase';
 import { Test, Question, TestSubmission, QuestionEvaluation, TheoryFeedback } from '../types';
 import { slugifyTitle } from './urlHelper';
 
@@ -17,8 +29,143 @@ function cleanTopicKey(str: string): string {
   );
 }
 
+export function toValidFirestoreId(raw: string, fallback = 'item'): string {
+  if (!raw) return fallback;
+  const cleaned = slugifyTitle(raw)
+    .replace(/[^a-zA-Z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120);
+  return cleaned || fallback;
+}
+
+export function getDeterministicAttemptId(
+  testId: string,
+  studentName: string,
+  rollNo?: string
+): string {
+  const testPart = toValidFirestoreId(testId, 'test').slice(0, 45);
+  const studentKey = rollNo && rollNo.trim() ? rollNo.trim() : studentName.trim();
+  const studentPart = toValidFirestoreId(studentKey, 'student').slice(0, 55);
+  return `att_${testPart}_${studentPart}`;
+}
+
 export function getTestCloudTopic(testIdOrSlug: string): string {
   return `tc_v7_sub_${cleanTopicKey(testIdOrSlug)}`;
+}
+
+// Recursively strip undefined values so Firestore never rejects a document
+function stripUndefined<T>(val: T): T {
+  if (Array.isArray(val)) {
+    return val.map(item => stripUndefined(item)) as unknown as T;
+  }
+  if (val !== null && typeof val === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val as Record<string, any>)) {
+      if (v !== undefined) {
+        out[k] = stripUndefined(v);
+      }
+    }
+    return out as T;
+  }
+  return val;
+}
+
+function sanitizeTestForFirestore(test: Test, uid: string): Record<string, any> {
+  const validSlug = toValidFirestoreId(test.slug || test.id || test.title, 'test');
+  const cleanQuestions = (test.questions || []).slice(0, 200).map((q, idx) => {
+    const base: Record<string, any> = {
+      id: String(q.id || `q_${idx + 1}`).slice(0, 120),
+      type: q.type === 'mcq' || q.type === 'true_false' || q.type === 'theory' ? q.type : 'mcq',
+      questionText: String(q.questionText || `Question ${idx + 1}`).slice(0, 4000),
+      marks: Math.max(0, Math.min(1000, Number(q.marks) || 1)),
+    };
+    if (q.type === 'mcq') {
+      base.options = Array.isArray(q.options)
+        ? q.options.map((o, oIdx) => ({
+            id: String(o.id || `opt_${oIdx + 1}`),
+            text: String(o.text || ''),
+          }))
+        : [];
+      base.correctOptionIds = Array.isArray(q.correctOptionIds)
+        ? q.correctOptionIds.map(String)
+        : [];
+      base.partialMarkingRule = q.partialMarkingRule === 'zero' ? 'zero' : 'half';
+    } else if (q.type === 'true_false') {
+      base.correctBoolean = q.correctBoolean !== false;
+    } else {
+      base.modelAnswer = String(q.modelAnswer || '').slice(0, 5000);
+    }
+    return base;
+  });
+
+  return stripUndefined({
+    id: validSlug,
+    slug: validSlug,
+    title: String(test.title || 'Untitled Test').slice(0, 300),
+    subject: String(test.subject || 'General').slice(0, 200),
+    instructions: String(test.instructions || '').slice(0, 5000),
+    timeLimitMinutes:
+      test.timeLimitMinutes !== null && test.timeLimitMinutes !== undefined
+        ? Math.max(0, Math.min(1440, Number(test.timeLimitMinutes) || 0))
+        : null,
+    totalMarks: Math.max(0, Math.min(10000, Number(test.totalMarks) || 0)),
+    createdAt: String(test.createdAt || new Date().toISOString()).slice(0, 64),
+    creatorUid: String(uid).slice(0, 128),
+    creatorName: String(test.creatorName || auth.currentUser?.displayName || 'Instructor').slice(
+      0,
+      200
+    ),
+    creatorUsername: String(test.creatorUsername || '').slice(0, 128),
+    creatorEmail: String(test.creatorEmail || auth.currentUser?.email || '').slice(0, 200),
+    questions: cleanQuestions,
+  });
+}
+
+function sanitizeSubmissionForFirestore(
+  sub: TestSubmission,
+  testDocId: string,
+  subDocId: string
+): Record<string, any> {
+  const cleanEvaluations = (sub.evaluations || []).slice(0, 200).map((ev, idx) => {
+    const item: Record<string, any> = {
+      questionId: String(ev.questionId || `q_${idx + 1}`),
+      questionType: ev.questionType || 'mcq',
+      questionText: String(ev.questionText || ''),
+      marksAwarded: Number(ev.marksAwarded) || 0,
+      maxMarks: Number(ev.maxMarks) || 1,
+      status: ev.status || 'wrong',
+      studentAnswerDisplay: String(ev.studentAnswerDisplay || ''),
+      correctAnswerDisplay: String(ev.correctAnswerDisplay || ''),
+    };
+    if (ev.theoryFeedback) {
+      item.theoryFeedback = {
+        conceptMatchPercentage: Number(ev.theoryFeedback.conceptMatchPercentage) || 0,
+        accuracyScore: Number(ev.theoryFeedback.accuracyScore) || 0,
+        conceptualVerdict: String(ev.theoryFeedback.conceptualVerdict || ''),
+        strengths: String(ev.theoryFeedback.strengths || ''),
+        missingPoints: String(ev.theoryFeedback.missingPoints || ''),
+        rubricNotes: String(ev.theoryFeedback.rubricNotes || ''),
+      };
+    }
+    return item;
+  });
+
+  return stripUndefined({
+    id: subDocId,
+    testId: testDocId,
+    testTitle: String(sub.testTitle || '').slice(0, 300),
+    subject: String(sub.subject || '').slice(0, 200),
+    studentName: String(sub.studentName || 'Student').slice(0, 200),
+    studentIdentifier: String(sub.studentIdentifier || '').slice(0, 128),
+    submittedAt: String(sub.submittedAt || new Date().toISOString()).slice(0, 64),
+    timeSpentSeconds: Math.max(0, Math.min(86400, Number(sub.timeSpentSeconds) || 0)),
+    totalScore: Math.max(0, Math.min(10000, Number(sub.totalScore) || 0)),
+    maxScore: Math.max(0, Math.min(10000, Number(sub.maxScore) || 0)),
+    percentage: Math.max(0, Math.min(100, Number(sub.percentage) || 0)),
+    grade: String(sub.grade || 'F').slice(0, 16),
+    passed: Boolean(sub.passed),
+    evaluations: cleanEvaluations,
+  });
 }
 
 function encodeSubmissionCompact(sub: TestSubmission): string {
@@ -171,8 +318,35 @@ async function postToTopic(topic: string, serialized: string, chunkId: string): 
 }
 
 /**
- * Publishes a graded student submission to the real-time cross-device cloud store
- * and broadcasts it across local browser tabs.
+ * Checks in Cloud Firestore if a student has already submitted this test.
+ */
+export async function checkStudentAttemptInFirestore(
+  testId: string,
+  studentName: string,
+  rollNo: string
+): Promise<TestSubmission | null> {
+  const testDocId = toValidFirestoreId(testId, 'test');
+  const attemptId = getDeterministicAttemptId(testDocId, studentName, rollNo);
+  try {
+    const snap = await getDoc(doc(db, 'tests', testDocId, 'submissions', attemptId));
+    if (snap.exists()) {
+      return snap.data() as TestSubmission;
+    }
+    if (rollNo && rollNo.trim()) {
+      // Also check by student name alone
+      const nameAttemptId = getDeterministicAttemptId(testDocId, studentName, '');
+      const nameSnap = await getDoc(doc(db, 'tests', testDocId, 'submissions', nameAttemptId));
+      if (nameSnap.exists()) {
+        return nameSnap.data() as TestSubmission;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Publishes a graded student submission to Cloud Firestore, ntfy cloud stream,
+ * and local browser BroadcastChannel.
  */
 export async function publishSubmissionToCloud(submission: TestSubmission): Promise<void> {
   if (!submission || !submission.id) return;
@@ -186,7 +360,22 @@ export async function publishSubmissionToCloud(submission: TestSubmission): Prom
     }
   } catch {}
 
-  // 2. Publish to cloud topics so test maker sees report across any device/email/browser
+  // 2. Save permanently to Cloud Firestore under /tests/{testId}/submissions/{deterministicId}
+  const testDocId = toValidFirestoreId(submission.testId || submission.testTitle || 'test', 'test');
+  const deterministicId = getDeterministicAttemptId(
+    testDocId,
+    submission.studentName,
+    submission.studentIdentifier
+  );
+
+  try {
+    const cleanPayload = sanitizeSubmissionForFirestore(submission, testDocId, deterministicId);
+    await setDoc(doc(db, 'tests', testDocId, 'submissions', deterministicId), cleanPayload);
+  } catch (e) {
+    console.warn('Firestore submission write warning (falling back to secondary stream):', e);
+  }
+
+  // 3. Publish to secondary cloud stream so reports sync even before Firestore rules or test doc sync
   const serialized = encodeSubmissionCompact(submission);
   const topics = new Set<string>();
   if (submission.testId) {
@@ -280,12 +469,38 @@ export function doesSubmissionMatchTest(
 }
 
 /**
- * Fetches all student submissions for a test from the cross-device cloud store.
+ * Fetches all student submissions for a test from Cloud Firestore + secondary stream.
  */
 export async function fetchSubmissionsFromCloud(
   testId: string,
   testTitle?: string
 ): Promise<TestSubmission[]> {
+  const mapByKey = new Map<string, TestSubmission>();
+  const addUnique = (sub: TestSubmission) => {
+    if (!sub) return;
+    const dedupeKey = `${(sub.studentName || '').trim().toLowerCase()}_${(
+      sub.studentIdentifier || ''
+    )
+      .trim()
+      .toLowerCase()}`;
+    mapByKey.set(dedupeKey || sub.id, sub);
+  };
+
+  // 1. Fetch from Cloud Firestore if teacher is authenticated
+  if (auth.currentUser && testId) {
+    const testDocId = toValidFirestoreId(testId, 'test');
+    try {
+      const snap = await getDocs(collection(db, 'tests', testDocId, 'submissions'));
+      snap.forEach(docSnap => {
+        const data = docSnap.data() as TestSubmission;
+        if (data && data.studentName) {
+          addUnique(data);
+        }
+      });
+    } catch {}
+  }
+
+  // 2. Also merge from secondary real-time stream
   const topics = new Set<string>();
   if (testId) topics.add(getTestCloudTopic(testId));
   if (testTitle) topics.add(getTestCloudTopic(testTitle));
@@ -302,22 +517,22 @@ export async function fetchSubmissionsFromCloud(
     })
   );
 
-  const mapById = new Map<string, TestSubmission>();
   for (const r of results) {
     if (r.status === 'fulfilled' && Array.isArray(r.value)) {
       for (const sub of r.value) {
         if (doesSubmissionMatchTest(sub, testId, testTitle)) {
-          mapById.set(sub.id, sub);
+          addUnique(sub);
         }
       }
     }
   }
 
-  return Array.from(mapById.values());
+  return Array.from(mapByKey.values());
 }
 
 /**
- * Subscribes to live submission events for a test (via BroadcastChannel + SSE).
+ * Subscribes to live submission events for a test via Cloud Firestore onSnapshot,
+ * BroadcastChannel, and SSE.
  */
 export function subscribeToLiveSubmissions(
   testId: string,
@@ -326,7 +541,31 @@ export function subscribeToLiveSubmissions(
 ): () => void {
   const cleanups: Array<() => void> = [];
 
-  // 1. Same-browser BroadcastChannel listener
+  // 1. Cloud Firestore Real-Time onSnapshot Listener (when teacher is signed in)
+  try {
+    if (auth.currentUser && testId) {
+      const testDocId = toValidFirestoreId(testId, 'test');
+      const unsubFirestore = onSnapshot(
+        collection(db, 'tests', testDocId, 'submissions'),
+        snapshot => {
+          snapshot.docChanges().forEach(change => {
+            if (change.type === 'added' || change.type === 'modified') {
+              const data = change.doc.data() as TestSubmission;
+              if (data && data.studentName) {
+                onReceive(data);
+              }
+            }
+          });
+        },
+        () => {
+          // Ignore snapshot permission error if user does not own this test in Firestore yet
+        }
+      );
+      cleanups.push(unsubFirestore);
+    }
+  } catch {}
+
+  // 2. Same-browser BroadcastChannel listener
   try {
     if (typeof BroadcastChannel !== 'undefined') {
       const bc = new BroadcastChannel(BroadcastChannelName);
@@ -340,7 +579,7 @@ export function subscribeToLiveSubmissions(
     }
   } catch {}
 
-  // 2. Real-time Server-Sent Events (SSE) from ntfy.sh
+  // 3. Real-time Server-Sent Events (SSE) fallback
   try {
     if (typeof EventSource !== 'undefined' && testId) {
       const topic = getTestCloudTopic(testId);
@@ -368,7 +607,7 @@ export function subscribeToLiveSubmissions(
 }
 
 // ============================================================================
-// CLOUD TEST DEFINITION SYNC (Enables short links containing only test title)
+// CLOUD TEST DEFINITION SYNC (Cloud Firestore + Short Link Mirror)
 // ============================================================================
 
 export function getTestDefinitionCloudTopic(testIdOrSlug: string): string {
@@ -517,11 +756,84 @@ function isTestSyncedLocally(testId: string, signature: string): boolean {
 }
 
 /**
- * Publishes a Test definition to the cloud so short links (?test=title) work on any device worldwide.
+ * Fetches all tests created by the signed-in Google user from Cloud Firestore.
+ */
+export async function fetchUserTestsFromFirestore(creatorUid: string): Promise<Test[]> {
+  if (!creatorUid || !auth.currentUser || auth.currentUser.uid !== creatorUid) {
+    return [];
+  }
+  try {
+    const q = query(collection(db, 'tests'), where('creatorUid', '==', creatorUid));
+    const snap = await getDocs(q);
+    const list: Test[] = [];
+    snap.forEach(docSnap => {
+      const data = docSnap.data() as Test;
+      if (data && data.id && data.title) {
+        list.push(data);
+      }
+    });
+    return list;
+  } catch (e) {
+    console.warn('Firestore user tests fetch warning:', e);
+    return [];
+  }
+}
+
+/**
+ * Deletes a test from Cloud Firestore if owned by the current user.
+ */
+export async function deleteTestFromFirestore(testIdOrSlug: string): Promise<void> {
+  if (!auth.currentUser || !testIdOrSlug) return;
+  const testDocId = toValidFirestoreId(testIdOrSlug, 'test');
+  try {
+    await deleteDoc(doc(db, 'tests', testDocId));
+  } catch (e) {
+    console.warn('Firestore test delete warning:', e);
+  }
+}
+
+/**
+ * Deletes a submission from Cloud Firestore if owned by the current test creator.
+ */
+export async function deleteSubmissionFromFirestore(
+  testId: string,
+  submission: TestSubmission
+): Promise<void> {
+  if (!auth.currentUser || !testId || !submission) return;
+  const testDocId = toValidFirestoreId(testId, 'test');
+  const deterministicId = getDeterministicAttemptId(
+    testDocId,
+    submission.studentName,
+    submission.studentIdentifier
+  );
+  try {
+    await deleteDoc(doc(db, 'tests', testDocId, 'submissions', deterministicId));
+    if (submission.id && submission.id !== deterministicId) {
+      await deleteDoc(doc(db, 'tests', testDocId, 'submissions', toValidFirestoreId(submission.id)));
+    }
+  } catch {}
+}
+
+/**
+ * Publishes a Test definition to Cloud Firestore + secondary stream so short links (?test=title)
+ * work permanently on any device worldwide.
  */
 export async function publishTestToCloud(test: Test): Promise<void> {
   if (!test || !Array.isArray(test.questions) || test.questions.length === 0) return;
 
+  const testDocId = toValidFirestoreId(test.slug || test.id || test.title, 'test');
+
+  // 1. Save permanently in Cloud Firestore if user is authenticated with Google
+  if (auth.currentUser) {
+    try {
+      const cleanDoc = sanitizeTestForFirestore(test, auth.currentUser.uid);
+      await setDoc(doc(db, 'tests', testDocId), cleanDoc);
+    } catch (e) {
+      console.warn('Firestore test publish warning:', e);
+    }
+  }
+
+  // 2. Also publish to secondary cloud stream so even unauthenticated/offline sessions sync
   const serialized = encodeTestCompact(test);
   const testKey = test.id || test.slug || slugifyTitle(test.title);
   const topics = new Set<string>();
@@ -536,16 +848,21 @@ export async function publishTestToCloud(test: Test): Promise<void> {
     Array.from(topics).map(topic => postToTopic(topic, serialized, chunkId))
   );
 
-  markTestSyncedLocally(testKey, `${test.title}_${test.questions.length}_${test.totalMarks}`);
+  const authMarker = auth.currentUser ? auth.currentUser.uid : 'anon';
+  markTestSyncedLocally(
+    testKey,
+    `${authMarker}_${test.title}_${test.questions.length}_${test.totalMarks}`
+  );
 }
 
 /**
- * Ensures an existing local test is synced to the cloud in the background without duplicate uploads.
+ * Ensures an existing local test is synced to Cloud Firestore + secondary stream in the background.
  */
 export function ensureTestPublishedToCloud(test: Test): void {
   if (!test || !Array.isArray(test.questions) || test.questions.length === 0) return;
   const testKey = test.id || test.slug || slugifyTitle(test.title);
-  const signature = `${test.title}_${test.questions.length}_${test.totalMarks}`;
+  const authMarker = auth.currentUser ? auth.currentUser.uid : 'anon';
+  const signature = `${authMarker}_${test.title}_${test.questions.length}_${test.totalMarks}`;
 
   if (isTestSyncedLocally(testKey, signature) || inFlightTestPublishes.has(testKey)) {
     return;
@@ -615,13 +932,26 @@ function parseNtfyLinesToTests(ndjsonText: string): Test[] {
 }
 
 /**
- * Fetches a Test definition from the cloud by its short title slug or ID.
+ * Fetches a Test definition from Cloud Firestore first, then falls back to secondary cloud stream.
  */
 export async function fetchTestFromCloud(testIdOrSlug: string): Promise<Test | null> {
   if (!testIdOrSlug || !testIdOrSlug.trim()) return null;
   const cleanId = decodeURIComponent(testIdOrSlug).trim();
   const targetSlug = slugifyTitle(cleanId);
+  const firestoreDocId = toValidFirestoreId(cleanId, 'test');
 
+  // 1. Primary lookup in Cloud Firestore (works for any student without signing in!)
+  try {
+    const snap = await getDoc(doc(db, 'tests', firestoreDocId));
+    if (snap.exists()) {
+      const data = snap.data() as Test;
+      if (data && Array.isArray(data.questions) && data.questions.length > 0) {
+        return data;
+      }
+    }
+  } catch {}
+
+  // 2. Fallback lookup in secondary stream
   const topics = [getTestDefinitionCloudTopic(cleanId), GLOBAL_TESTS_TOPIC];
   const results = await Promise.allSettled(
     topics.map(async topic => {
@@ -654,6 +984,5 @@ export async function fetchTestFromCloud(testIdOrSlug: string): Promise<Test | n
   }
 
   if (candidates.length === 0) return null;
-  // Return the most recently published matching test
   return candidates[candidates.length - 1];
 }

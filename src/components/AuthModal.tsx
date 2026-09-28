@@ -1,132 +1,63 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  User, 
-  Lock, 
-  AtSign, 
-  CheckCircle, 
-  AlertCircle, 
-  ArrowRight, 
-  Eye, 
-  EyeOff, 
-  Sparkles,
-  ShieldCheck,
-  UserPlus,
-  LogIn
-} from 'lucide-react';
+import { X, AlertCircle, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Logo } from './Logo';
-import { SUPER_ADMIN_USERNAME, SUPER_ADMIN_PASSWORD } from '../types';
-import { apiService } from '../services/apiService';
 
 export const AuthModal: React.FC = () => {
-  const { 
-    authModalOpen, 
-    authModalMode, 
-    openAuthModal,
-    closeAuthModal, 
-    signInWithUsername, 
-    registerWithUsername 
-  } = useAuth();
+  const { authModalOpen, authModalMode, closeAuthModal, signInWithGoogle } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'signin' | 'get_started'>('signin');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usernameAvailability, setUsernameAvailability] = useState<{ available?: boolean; message?: string } | null>(null);
-  const [checkingUsername, setCheckingUsername] = useState(false);
 
   useEffect(() => {
     if (authModalOpen) {
-      setActiveTab(authModalMode);
       setError(null);
-      setUsernameAvailability(null);
+      setLoading(false);
     }
-  }, [authModalOpen, authModalMode]);
-
-  // Check username availability while typing in "Get Started" mode
-  useEffect(() => {
-    if (activeTab !== 'get_started') {
-      setUsernameAvailability(null);
-      return;
-    }
-
-    const clean = username.trim().replace(/^@/, '');
-    if (clean.length < 3) {
-      setUsernameAvailability(null);
-      return;
-    }
-
-    const timeout = setTimeout(async () => {
-      setCheckingUsername(true);
-      try {
-        const result = await apiService.checkUsername(clean);
-        setUsernameAvailability(result);
-      } catch {
-        setUsernameAvailability(null);
-      } finally {
-        setCheckingUsername(false);
-      }
-    }, 400);
-
-    return () => clearTimeout(timeout);
-  }, [username, activeTab]);
+  }, [authModalOpen]);
 
   if (!authModalOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGoogleSignIn = async () => {
     setError(null);
-
-    const cleanUname = username.trim().replace(/^@/, '');
-    if (!cleanUname) {
-      setError('Please enter a username.');
-      return;
-    }
-    if (cleanUname.length < 3) {
-      setError('Username must be at least 3 characters long (letters, numbers, underscore).');
-      return;
-    }
-    if (!password.trim()) {
-      setError('Please enter your password.');
-      return;
-    }
-
     setLoading(true);
     try {
-      if (activeTab === 'get_started') {
-        await registerWithUsername(cleanUname, password.trim(), displayName.trim() || undefined);
-      } else {
-        await signInWithUsername(cleanUname, password.trim());
-      }
+      await signInWithGoogle();
     } catch (err: any) {
-      setError(err?.message || 'Authentication failed. Please verify your credentials.');
+      const code = err?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setError(null);
+      } else if (code === 'auth/unauthorized-domain') {
+        const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'testcraftai.online';
+        setError(
+          `Domain "${currentHost}" is not yet authorized in Firebase. Open Firebase Console (testcraftai-online) → Authentication → Settings → Authorized domains → Add "${currentHost}".`
+        );
+      } else if (code === 'auth/operation-not-allowed') {
+        setError(
+          'Google Sign-In is not yet enabled in Firebase Console. Open Firebase Console (testcraftai-online) → Authentication → Sign-in method → Enable Google.'
+        );
+      } else {
+        setError(err?.message || 'Google Sign-In could not be completed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const fillAdminCredentials = () => {
-    setActiveTab('signin');
-    setUsername(SUPER_ADMIN_USERNAME);
-    setPassword(SUPER_ADMIN_PASSWORD);
-    setError(null);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div 
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={closeAuthModal}
+    >
+      <div
         className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
+        onClick={e => e.stopPropagation()}
       >
         {/* Top Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-2">
           <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs uppercase tracking-wider">
             <Logo size="xs" />
-            <span>TestCraft Workspace Access</span>
+            <span>TestCraft AI Workspace</span>
           </div>
 
           <button
@@ -138,55 +69,16 @@ export const AuthModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Tab switchers: Sign In vs Get Started */}
-        <div className="px-6 pt-2 pb-1">
-          <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-2xl border border-slate-200 text-xs font-bold">
-            <button
-              type="button"
-              id="tab-auth-signin"
-              onClick={() => {
-                setActiveTab('signin');
-                setError(null);
-              }}
-              className={`py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'signin'
-                  ? 'bg-white text-indigo-700 shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Sign In</span>
-            </button>
-
-            <button
-              type="button"
-              id="tab-auth-get-started"
-              onClick={() => {
-                setActiveTab('get_started');
-                setError(null);
-              }}
-              className={`py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                activeTab === 'get_started'
-                  ? 'bg-white text-indigo-700 shadow-xs font-black'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Get Started</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Body Form */}
-        <div className="p-6 pt-3 space-y-4">
+        {/* Body */}
+        <div className="p-6 pt-3 space-y-5">
           <div>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-display">
-              {activeTab === 'get_started' ? 'Create Your Account' : 'Welcome Back'}
+            <h2 className="text-2xl font-black text-slate-900 font-display">
+              {authModalMode === 'get_started'
+                ? 'Get Started with Google'
+                : 'Sign In with Google'}
             </h2>
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              {activeTab === 'get_started'
-                ? 'Choose your unique username handle and password to set up your isolated test workspace.'
-                : 'Enter your account username and password to open your examinations and reports.'}
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+              Sign in securely with your Google account to create tests, generate short shareable links, and view your student reports.
             </p>
           </div>
 
@@ -197,138 +89,60 @@ export const AuthModal: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-3.5">
-            {activeTab === 'get_started' && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Full / Display Name
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    id="input-display-name"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="e.g. Prof. Sarah Jenkins"
-                    className="w-full h-11 pl-10 pr-3.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium"
-                  />
-                </div>
-              </div>
-            )}
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-slate-700">
-                  Username *
-                </label>
-                {activeTab === 'get_started' && username.trim().length >= 3 && (
-                  <span className="text-[10px] font-bold">
-                    {checkingUsername ? (
-                      <span className="text-slate-400">Checking...</span>
-                    ) : usernameAvailability?.available === false ? (
-                      <span className="text-rose-600">Already Taken ✗</span>
-                    ) : usernameAvailability?.available === true ? (
-                      <span className="text-emerald-600">Available ✓</span>
-                    ) : null}
-                  </span>
-                )}
-              </div>
-              <div className="relative">
-                <AtSign className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  id="input-username"
-                  required
-                  value={username.replace(/^@/, '')}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. sarah_teacher"
-                  className={`w-full h-11 pl-10 pr-3.5 rounded-xl border text-xs font-mono font-bold focus:ring-2 transition-all ${
-                    activeTab === 'get_started' && usernameAvailability?.available === false
-                      ? 'border-rose-400 focus:ring-rose-200 text-rose-900 bg-rose-50/30'
-                      : 'border-slate-300 focus:ring-indigo-500 focus:border-indigo-500 text-slate-900'
-                  }`}
-                />
-              </div>
-              {activeTab === 'get_started' && usernameAvailability?.available === false && (
-                <p className="text-[11px] text-rose-600 font-semibold mt-1">
-                  Username '@{username.trim().replace(/^@/, '')}' is already taken. Please choose another username.
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Password *
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  id="input-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className="w-full h-11 pl-10 pr-10 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="p-1.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              id="btn-submit-auth"
-              disabled={loading || (activeTab === 'get_started' && usernameAvailability?.available === false)}
-              className="w-full mt-2 h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-sm shadow-md shadow-indigo-600/20 transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>{activeTab === 'get_started' ? 'Create Account & Get Started' : 'Sign In to Account'}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-
-          <div className="pt-2 border-t border-slate-100 text-center text-xs text-slate-500">
-            {activeTab === 'get_started' ? (
-              <span>
-                Already created your username?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('signin');
-                    setError(null);
-                  }}
-                  className="font-bold text-indigo-600 hover:underline cursor-pointer"
-                >
-                  Sign In
-                </button>
-              </span>
+          {/* Primary Google Sign-In Button */}
+          <button
+            type="button"
+            id="btn-google-signin"
+            disabled={loading}
+            onClick={handleGoogleSignIn}
+            className="w-full py-3.5 px-5 rounded-2xl bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 font-bold text-sm border-2 border-slate-200 hover:border-indigo-300 shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-3 cursor-pointer disabled:opacity-60"
+          >
+            {loading ? (
+              <>
+                <div className="w-5 h-5 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin" />
+                <span>Connecting to Google...</span>
+              </>
             ) : (
-              <span>
-                Visiting for the first time?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab('get_started');
-                    setError(null);
-                  }}
-                  className="font-bold text-indigo-600 hover:underline cursor-pointer"
-                >
-                  Get Started
-                </button>
-              </span>
+              <>
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  />
+                </svg>
+                <span>Continue with Google</span>
+              </>
             )}
+          </button>
+
+          {/* Benefits Box */}
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2 text-xs text-slate-600">
+            <div className="flex items-center gap-2 font-bold text-slate-800">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Private Google Account Workspace</span>
+            </div>
+            <ul className="space-y-1.5 pl-1">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span>Your tests and student reports stay private to your Google email.</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span>Students still open your short test links directly without signing in.</span>
+              </li>
+            </ul>
           </div>
         </div>
       </div>

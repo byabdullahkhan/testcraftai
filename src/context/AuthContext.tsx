@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { UserProfile, EmailNotification, cleanUsername } from '../types';
+import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { auth, googleProvider } from '../firebase';
+import { UserProfile, EmailNotification, cleanUsername, SUPER_ADMIN_USERNAME } from '../types';
 import { apiService } from '../services/apiService';
 
 interface AuthContextType {
@@ -10,6 +12,7 @@ interface AuthContextType {
   authModalMode: 'signin' | 'get_started';
   openAuthModal: (mode?: 'signin' | 'get_started', onSuccess?: () => void) => void;
   closeAuthModal: () => void;
+  signInWithGoogle: () => Promise<void>;
   signInWithUsername: (username: string, password: string) => Promise<void>;
   registerWithUsername: (username: string, password: string, displayName?: string) => Promise<void>;
   signOutUser: () => void;
@@ -27,8 +30,6 @@ interface AuthContextType {
   }) => Promise<void>;
   emailDrawerOpen: boolean;
   setEmailDrawerOpen: (open: boolean) => void;
-  // Legacy stubs if any component references them
-  signInWithGoogle?: () => Promise<void>;
   signInAsAdminBypass?: () => Promise<void>;
   acceptTermsAndConditions?: () => Promise<void>;
   toggleEmailNotifications?: (enabled: boolean) => Promise<void>;
@@ -38,38 +39,52 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const LOCAL_SESSION_KEY = 'testcraft_user_session';
 const LOCAL_EMAILS_KEY_PREFIX = 'testcraft_emails_';
+const CUSTOM_PROFILE_PREFIX = 'testcraft_custom_profile_';
+
+function buildUserProfileFromFirebase(fbUser: FirebaseUser): UserProfile {
+  const email = (fbUser.email || '').trim().toLowerCase();
+  const emailPrefix = email ? email.split('@')[0] : '';
+  const defaultUsername = cleanUsername(
+    emailPrefix || fbUser.displayName || `user_${fbUser.uid.slice(0, 6)}`
+  ).toLowerCase();
+
+  let savedCustom: { displayName?: string; username?: string } = {};
+  try {
+    const raw = localStorage.getItem(`${CUSTOM_PROFILE_PREFIX}${fbUser.uid}`);
+    if (raw) savedCustom = JSON.parse(raw);
+  } catch {}
+
+  const finalUsername = savedCustom.username
+    ? cleanUsername(savedCustom.username).toLowerCase()
+    : defaultUsername;
+  const finalDisplayName =
+    savedCustom.displayName || fbUser.displayName || emailPrefix || finalUsername;
+
+  const isSuperAdmin =
+    finalUsername === SUPER_ADMIN_USERNAME.toLowerCase() ||
+    email === 'byabdullahkhan@gmail.com';
+
+  return {
+    uid: fbUser.uid,
+    username: finalUsername,
+    displayName: finalDisplayName,
+    email: email || undefined,
+    photoURL: fbUser.photoURL || undefined,
+    role: isSuperAdmin ? 'admin' : 'instructor',
+    createdAt: fbUser.metadata?.creationTime || new Date().toISOString(),
+    lastLoginAt: fbUser.metadata?.lastSignInTime || new Date().toISOString(),
+  };
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'signin' | 'get_started'>('signin');
   const [pendingSuccessCallback, setPendingSuccessCallback] = useState<(() => void) | null>(null);
   const [recentEmails, setRecentEmails] = useState<EmailNotification[]>([]);
   const [emailDrawerOpen, setEmailDrawerOpen] = useState(false);
   const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
-
-  // Always require fresh sign-in whenever the user leaves and reopens the site
-  useEffect(() => {
-    try {
-      localStorage.removeItem(LOCAL_SESSION_KEY);
-      sessionStorage.removeItem(LOCAL_SESSION_KEY);
-    } catch {}
-
-    const handleLeaveSite = () => {
-      try {
-        localStorage.removeItem(LOCAL_SESSION_KEY);
-        sessionStorage.removeItem(LOCAL_SESSION_KEY);
-      } catch {}
-    };
-
-    window.addEventListener('pagehide', handleLeaveSite);
-    window.addEventListener('beforeunload', handleLeaveSite);
-    return () => {
-      window.removeEventListener('pagehide', handleLeaveSite);
-      window.removeEventListener('beforeunload', handleLeaveSite);
-    };
-  }, []);
 
   const loadUserEmails = (uid: string) => {
     try {
@@ -79,6 +94,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch {}
   };
+
+  // Listen to Firebase Google Auth state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, fbUser => {
+      if (fbUser) {
+        const profile = buildUserProfileFromFirebase(fbUser);
+        setUserProfile(profile);
+        loadUserEmails(profile.uid);
+        try {
+          localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile));
+        } catch {}
+      } else {
+        setUserProfile(null);
+        setRecentEmails([]);
+        try {
+          localStorage.removeItem(LOCAL_SESSION_KEY);
+        } catch {}
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const openAuthModal = (mode: 'signin' | 'get_started' = 'signin', onSuccess?: () => void) => {
     setAuthModalMode(mode);
@@ -95,7 +133,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setPendingSuccessCallback(null);
   };
 
-  // Sign In with Username & Password
+  // Primary Google Sign-In via Firebase Popup
+  const signInWithGoogle = async () => {
+    const result = await signInWithPopup(auth, googleProvider);
+    const profile = buildUserProfileFromFirebase(result.user);
+    setUserProfile(profile);
+    loadUserEmails(profile.uid);
+    try {
+      localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile));
+    } catch {}
+    closeAuthModal();
+
+    if (pendingSuccessCallback) {
+      pendingSuccessCallback();
+      setPendingSuccessCallback(null);
+    }
+  };
+
+  // Legacy Username & Password fallback
   const signInWithUsername = async (username: string, password: string) => {
     const rawUname = username.trim().replace(/^@/, '');
     const user = await apiService.signInUser({
@@ -113,7 +168,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Register with Username & Password (Get Started)
   const registerWithUsername = async (username: string, password: string, displayName?: string) => {
     const rawUname = username.trim().replace(/^@/, '');
     const user = await apiService.registerUser({
@@ -133,6 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOutUser = () => {
+    signOut(auth).catch(() => {});
     try {
       localStorage.removeItem(LOCAL_SESSION_KEY);
       sessionStorage.removeItem(LOCAL_SESSION_KEY);
@@ -146,6 +201,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!userProfile) return;
     const cleanUname = cleanUsername(username).toLowerCase();
     const cleanName = displayName.trim() || userProfile.displayName;
+
+    try {
+      localStorage.setItem(
+        `${CUSTOM_PROFILE_PREFIX}${userProfile.uid}`,
+        JSON.stringify({ displayName: cleanName, username: cleanUname })
+      );
+    } catch {}
 
     const updatedProfile: UserProfile = {
       ...userProfile,
@@ -188,10 +250,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       bodyText: emailData.bodyText,
       sentAt: new Date().toISOString(),
       status: 'delivered',
-      meta: emailData.meta
+      meta: emailData.meta,
     };
 
-    setRecentEmails(prev => {
+    setRecentEmails((prev: EmailNotification[]) => {
       const updated = [newEmail, ...prev].slice(0, 30);
       if (emailData.recipientUid || userProfile?.uid) {
         const uid = emailData.recipientUid || userProfile?.uid;
@@ -201,13 +263,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  // Compatibility stubs
-  const signInWithGoogle = async () => {
-    openAuthModal('signin');
-  };
-
   const signInAsAdminBypass = async () => {
-    await signInWithUsername('byabdullahkhan', 'gemini');
+    await signInWithGoogle();
   };
 
   return (
@@ -220,6 +277,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authModalMode,
         openAuthModal,
         closeAuthModal,
+        signInWithGoogle,
         signInWithUsername,
         registerWithUsername,
         signOutUser,
@@ -230,7 +288,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendAutomatedEmail,
         emailDrawerOpen,
         setEmailDrawerOpen,
-        signInWithGoogle,
         signInAsAdminBypass,
       }}
     >

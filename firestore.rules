@@ -1,0 +1,166 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Schema Validation Blueprint: Test
+    function isValidTest(data) {
+      return data.keys().hasAll(['id', 'slug', 'title', 'totalMarks', 'createdAt', 'creatorUid', 'questions'])
+        && data.keys().hasOnly([
+          'id',
+          'slug',
+          'title',
+          'subject',
+          'instructions',
+          'timeLimitMinutes',
+          'totalMarks',
+          'createdAt',
+          'creatorUid',
+          'creatorName',
+          'creatorUsername',
+          'creatorEmail',
+          'questions'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.slug)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 300
+        && (!('subject' in data) || (data.subject is string && data.subject.size() <= 200))
+        && (!('instructions' in data) || (data.instructions is string && data.instructions.size() <= 5000))
+        && (!('timeLimitMinutes' in data) || data.timeLimitMinutes == null || (data.timeLimitMinutes is number && data.timeLimitMinutes >= 0 && data.timeLimitMinutes <= 1440))
+        && data.totalMarks is number && data.totalMarks >= 0 && data.totalMarks <= 10000
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && data.creatorUid is string && data.creatorUid.size() >= 1 && data.creatorUid.size() <= 128
+        && (!('creatorName' in data) || (data.creatorName is string && data.creatorName.size() <= 200))
+        && (!('creatorUsername' in data) || (data.creatorUsername is string && data.creatorUsername.size() <= 128))
+        && (!('creatorEmail' in data) || (data.creatorEmail is string && data.creatorEmail.size() <= 200))
+        && data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 200
+        && data.questions[0] is map;
+    }
+
+    // Schema Validation Blueprint: TestSubmission
+    function isValidSubmission(data, testIdParam) {
+      return data.keys().hasAll([
+          'id',
+          'testId',
+          'studentName',
+          'submittedAt',
+          'totalScore',
+          'maxScore',
+          'percentage',
+          'grade',
+          'passed',
+          'evaluations'
+        ])
+        && data.keys().hasOnly([
+          'id',
+          'testId',
+          'testTitle',
+          'subject',
+          'studentName',
+          'studentIdentifier',
+          'submittedAt',
+          'timeSpentSeconds',
+          'totalScore',
+          'maxScore',
+          'percentage',
+          'grade',
+          'passed',
+          'creatorUid',
+          'evaluations'
+        ])
+        && isValidId(data.id)
+        && data.testId == testIdParam
+        && (!('testTitle' in data) || (data.testTitle is string && data.testTitle.size() <= 300))
+        && (!('subject' in data) || (data.subject is string && data.subject.size() <= 200))
+        && data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 200
+        && (!('studentIdentifier' in data) || (data.studentIdentifier is string && data.studentIdentifier.size() <= 128))
+        && data.submittedAt is string && data.submittedAt.size() <= 64
+        && (!('timeSpentSeconds' in data) || (data.timeSpentSeconds is number && data.timeSpentSeconds >= 0 && data.timeSpentSeconds <= 86400))
+        && data.totalScore is number && data.totalScore >= 0 && data.totalScore <= 10000
+        && data.maxScore is number && data.maxScore >= 0 && data.maxScore <= 10000
+        && data.percentage is number && data.percentage >= 0 && data.percentage <= 100
+        && data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 16
+        && data.passed is bool
+        && (!('creatorUid' in data) || (data.creatorUid is string && data.creatorUid.size() <= 128))
+        && data.evaluations is list && data.evaluations.size() <= 200;
+    }
+
+    // Connection health check endpoint
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Collection: /tests/{testId}
+    match /tests/{testId} {
+      // Students anywhere can open a test using its short link slug/ID without signing in
+      allow get: if isValidId(testId);
+
+      // Instructors can list only their own tests
+      allow list: if isSignedIn() && existing().creatorUid == request.auth.uid;
+
+      // Only the authenticated creator can create, update, or delete their own test
+      allow create: if isSignedIn()
+        && isValidId(testId)
+        && isValidTest(incoming())
+        && incoming().creatorUid == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && isValidId(testId)
+        && isValidTest(incoming())
+        && existing().creatorUid == request.auth.uid
+        && incoming().creatorUid == existing().creatorUid
+        && incoming().createdAt == existing().createdAt;
+
+      allow delete: if isSignedIn()
+        && isValidId(testId)
+        && existing().creatorUid == request.auth.uid;
+
+      // Subcollection: /tests/{testId}/submissions/{submissionId}
+      match /submissions/{submissionId} {
+        // Students can read a specific submission by ID (for single-attempt check & viewing their report)
+        allow get: if isValidId(testId) && isValidId(submissionId);
+
+        // Only the authenticated test creator can list all student reports for their test
+        allow list: if isSignedIn()
+          && isValidId(testId)
+          && get(/databases/$(database)/documents/tests/$(testId)).data.creatorUid == request.auth.uid;
+
+        // Students can submit their test once (without signing in) if the parent test exists
+        allow create: if isValidId(testId)
+          && isValidId(submissionId)
+          && isValidSubmission(incoming(), testId)
+          && exists(/databases/$(database)/documents/tests/$(testId));
+
+        // Submissions are locked once created (no tampering or overwriting)
+        allow update: if false;
+
+        // Only the authenticated test creator can delete a submission
+        allow delete: if isSignedIn()
+          && isValidId(testId)
+          && isValidId(submissionId)
+          && get(/databases/$(database)/documents/tests/$(testId)).data.creatorUid == request.auth.uid;
+      }
+    }
+  }
+}
