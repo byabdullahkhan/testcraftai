@@ -1,5 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import {
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+  signOut,
+  onAuthStateChanged,
+  User as FirebaseUser,
+} from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { UserProfile, EmailNotification, cleanUsername, SUPER_ADMIN_USERNAME } from '../types';
 import { apiService } from '../services/apiService';
@@ -13,6 +22,9 @@ interface AuthContextType {
   openAuthModal: (mode?: 'signin' | 'get_started', onSuccess?: () => void) => void;
   closeAuthModal: () => void;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  registerWithEmail: (email: string, password: string, displayName?: string) => Promise<void>;
+  resetPasswordWithEmail: (email: string) => Promise<void>;
   signInWithUsername: (username: string, password: string) => Promise<void>;
   registerWithUsername: (username: string, password: string, displayName?: string) => Promise<void>;
   signOutUser: () => void;
@@ -95,7 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   };
 
-  // Listen to Firebase Google Auth state
+  // Listen to Firebase Auth state (Google & Email/Password)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, fbUser => {
       if (fbUser) {
@@ -106,11 +118,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile));
         } catch {}
       } else {
-        setUserProfile(null);
-        setRecentEmails([]);
+        // Check if there is a locally stored fallback session
+        let restored = false;
         try {
-          localStorage.removeItem(LOCAL_SESSION_KEY);
+          const cachedSession = localStorage.getItem(LOCAL_SESSION_KEY);
+          if (cachedSession) {
+            const parsed = JSON.parse(cachedSession);
+            if (parsed && parsed.uid && String(parsed.uid).startsWith('usr_')) {
+              setUserProfile(parsed);
+              loadUserEmails(parsed.uid);
+              restored = true;
+            } else {
+              localStorage.removeItem(LOCAL_SESSION_KEY);
+            }
+          }
         } catch {}
+        if (!restored) {
+          setUserProfile(null);
+          setRecentEmails([]);
+        }
       }
       setLoading(false);
     });
@@ -148,6 +174,153 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       pendingSuccessCallback();
       setPendingSuccessCallback(null);
     }
+  };
+
+  // Sign In with Email & Password (Firebase Auth + automatic account creation if new + fallback)
+  const signInWithEmail = async (email: string, password: string) => {
+    const cleanMail = email.trim().toLowerCase();
+    const cleanPass = password.trim();
+    const emailPrefix = cleanMail.split('@')[0] || cleanMail;
+
+    try {
+      const result = await signInWithEmailAndPassword(auth, cleanMail, cleanPass);
+      const profile = buildUserProfileFromFirebase(result.user);
+      setUserProfile(profile);
+      loadUserEmails(profile.uid);
+      try {
+        localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile));
+      } catch {}
+      closeAuthModal();
+      if (pendingSuccessCallback) {
+        pendingSuccessCallback();
+        setPendingSuccessCallback(null);
+      }
+    } catch (err: any) {
+      // If user does not exist yet in Firebase Auth, seamlessly register them with this email & password
+      if (err?.code === 'auth/user-not-found' || err?.code === 'auth/invalid-credential') {
+        try {
+          const created = await createUserWithEmailAndPassword(auth, cleanMail, cleanPass);
+          const profile = buildUserProfileFromFirebase(created.user);
+          setUserProfile(profile);
+          loadUserEmails(profile.uid);
+          try {
+            localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile));
+          } catch {}
+          closeAuthModal();
+          if (pendingSuccessCallback) {
+            pendingSuccessCallback();
+            setPendingSuccessCallback(null);
+          }
+          return;
+        } catch (createErr: any) {
+          // If email-already-in-use, it means the account exists and the password was wrong
+          if (createErr?.code === 'auth/email-already-in-use') {
+            throw err;
+          }
+          throw createErr;
+        }
+      }
+
+      if (err?.code === 'auth/operation-not-allowed') {
+        // Fallback if Email/Password provider isn't enabled in Firebase Console yet
+        let user: UserProfile;
+        try {
+          user = await apiService.signInUser({
+            username: emailPrefix,
+            password: cleanPass,
+          });
+        } catch (signInErr: any) {
+          if (String(signInErr?.message || '').includes('not found')) {
+            user = await apiService.registerUser({
+              username: emailPrefix,
+              password: cleanPass,
+              displayName: emailPrefix,
+            });
+          } else {
+            throw signInErr;
+          }
+        }
+        const enriched: UserProfile = { ...user, email: cleanMail };
+        setUserProfile(enriched);
+        loadUserEmails(enriched.uid);
+        try {
+          localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(enriched));
+        } catch {}
+        closeAuthModal();
+        if (pendingSuccessCallback) {
+          pendingSuccessCallback();
+          setPendingSuccessCallback(null);
+        }
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // Register with Email, Password & Display Name (Firebase Auth + fallback)
+  const registerWithEmail = async (email: string, password: string, displayName?: string) => {
+    const cleanMail = email.trim().toLowerCase();
+    const cleanPass = password.trim();
+    const emailPrefix = cleanMail.split('@')[0] || 'user';
+    const cleanName = displayName?.trim() || emailPrefix;
+
+    try {
+      const result = await createUserWithEmailAndPassword(auth, cleanMail, cleanPass);
+      if (cleanName) {
+        try {
+          await updateProfile(result.user, { displayName: cleanName });
+        } catch {}
+      }
+      try {
+        localStorage.setItem(
+          `${CUSTOM_PROFILE_PREFIX}${result.user.uid}`,
+          JSON.stringify({
+            displayName: cleanName,
+            username: cleanUsername(emailPrefix).toLowerCase(),
+          })
+        );
+      } catch {}
+      const profile = buildUserProfileFromFirebase(result.user);
+      profile.displayName = cleanName;
+      setUserProfile(profile);
+      loadUserEmails(profile.uid);
+      try {
+        localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(profile));
+      } catch {}
+      closeAuthModal();
+      if (pendingSuccessCallback) {
+        pendingSuccessCallback();
+        setPendingSuccessCallback(null);
+      }
+    } catch (err: any) {
+      if (err?.code === 'auth/operation-not-allowed') {
+        // Fallback if Email/Password provider isn't enabled in Firebase Console yet
+        const user = await apiService.registerUser({
+          username: emailPrefix,
+          password: cleanPass,
+          displayName: cleanName,
+        });
+        const enriched: UserProfile = { ...user, email: cleanMail, displayName: cleanName };
+        setUserProfile(enriched);
+        loadUserEmails(enriched.uid);
+        try {
+          localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(enriched));
+        } catch {}
+        closeAuthModal();
+        if (pendingSuccessCallback) {
+          pendingSuccessCallback();
+          setPendingSuccessCallback(null);
+        }
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // Send Password Reset Email via Firebase Auth
+  const resetPasswordWithEmail = async (email: string) => {
+    const cleanMail = email.trim().toLowerCase();
+    await sendPasswordResetEmail(auth, cleanMail);
   };
 
   // Legacy Username & Password fallback
@@ -278,6 +451,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         openAuthModal,
         closeAuthModal,
         signInWithGoogle,
+        signInWithEmail,
+        registerWithEmail,
+        resetPasswordWithEmail,
         signInWithUsername,
         registerWithUsername,
         signOutUser,
