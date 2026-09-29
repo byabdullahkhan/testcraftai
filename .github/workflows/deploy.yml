@@ -68,6 +68,92 @@ jobs:
 
       - name: Build static frontend
         run: |
+          node -e '
+            const fs = require("fs");
+            const zlib = require("zlib");
+            function renderLogoPNG(size) {
+              const buf = Buffer.alloc(size * size * 4, 0);
+              const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+              const lerp = (a, b, t) => a + (b - a) * t;
+              const sdRoundRect = (px, py, cx, cy, hx, hy, r) => {
+                const qx = Math.abs(px - cx) - (hx - r);
+                const qy = Math.abs(py - cy) - (hy - r);
+                return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+              };
+              const sdSegment = (px, py, ax, ay, bx, by) => {
+                const pax = px - ax, pay = py - ay, bax = bx - ax, bay = by - ay;
+                const h = clamp((pax * bax + pay * bay) / (bax * bax + bay * bay), 0, 1);
+                return Math.hypot(pax - bax * h, pay - bay * h);
+              };
+              for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                  const sx = ((x + 0.5) / size) * 120, sy = ((y + 0.5) / size) * 120, aa = 120 / size;
+                  const bgAlpha = clamp(0.5 - sdRoundRect(sx, sy, 60, 60, 52, 52, 28) / aa, 0, 1);
+                  if (bgAlpha <= 0) continue;
+                  const tBg = clamp(((sx - 10) + (sy - 10)) / 200, 0, 1);
+                  let r = tBg < 0.5 ? lerp(0x4f, 0x63, tBg * 2) : lerp(0x63, 0x7c, (tBg - 0.5) * 2);
+                  let g = tBg < 0.5 ? lerp(0x46, 0x66, tBg * 2) : lerp(0x66, 0x3a, (tBg - 0.5) * 2);
+                  let b = tBg < 0.5 ? lerp(0xe5, 0xf1, tBg * 2) : lerp(0xf1, 0xed, (tBg - 0.5) * 2);
+                  const tAlpha = clamp(0.5 - Math.min(sdRoundRect(sx, sy, 60, 38, 26, 8, 5), sdRoundRect(sx, sy, 57, 63, 10, 25, 6)) / aa, 0, 1);
+                  if (tAlpha > 0) { r = lerp(r, 255, tAlpha); g = lerp(g, 255, tAlpha); b = lerp(b, 255, tAlpha); }
+                  const cAlpha = clamp(0.5 - Math.min(sdSegment(sx, sy, 48, 64, 58, 74) - 3.8, sdSegment(sx, sy, 58, 74, 88, 44) - 3.8) / aa, 0, 1);
+                  if (cAlpha > 0) {
+                    const tAcc = clamp(((sx - 48) + (sy - 44)) / 70, 0, 1);
+                    r = lerp(r, lerp(0x38, 0x06, tAcc), cAlpha);
+                    g = lerp(g, lerp(0xbd, 0xb6, tAcc), cAlpha);
+                    b = lerp(b, lerp(0xf8, 0xd4, tAcc), cAlpha);
+                  }
+                  const sAlpha = clamp(0.5 - (Math.hypot(sx - 84, sy - 28) - 4.2) / aa, 0, 1);
+                  if (sAlpha > 0) { r = lerp(r, 0x38, sAlpha); g = lerp(g, 0xbd, sAlpha); b = lerp(b, 0xf8, sAlpha); }
+                  const idx = (y * size + x) * 4;
+                  buf[idx] = Math.round(r); buf[idx + 1] = Math.round(g); buf[idx + 2] = Math.round(b); buf[idx + 3] = Math.round(bgAlpha * 255);
+                }
+              }
+              const rawData = Buffer.alloc(size * (size * 4 + 1));
+              for (let y = 0; y < size; y++) {
+                rawData[y * (size * 4 + 1)] = 0;
+                buf.copy(rawData, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
+              }
+              const compressed = zlib.deflateSync(rawData, { level: 9 });
+              const crc32 = (data) => {
+                let c = 0xffffffff;
+                for (let i = 0; i < data.length; i++) {
+                  c ^= data[i];
+                  for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+                }
+                return (c ^ 0xffffffff) >>> 0;
+              };
+              const chunk = (type, data) => {
+                const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
+                const typeBuf = Buffer.from(type, "ascii");
+                const crcBuf = Buffer.alloc(4); crcBuf.writeUInt32BE(crc32(Buffer.concat([typeBuf, data])), 0);
+                return Buffer.concat([len, typeBuf, data, crcBuf]);
+              };
+              const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+              const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4); ihdr[8] = 8; ihdr[9] = 6;
+              return Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", compressed), chunk("IEND", Buffer.alloc(0))]);
+            }
+            function createICO(pngBuffers, sizes) {
+              const count = pngBuffers.length, header = Buffer.alloc(6);
+              header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(count, 4);
+              const dirs = []; let offset = 6 + count * 16;
+              for (let i = 0; i < count; i++) {
+                const dir = Buffer.alloc(16), s = sizes[i];
+                dir[0] = s >= 256 ? 0 : s; dir[1] = s >= 256 ? 0 : s;
+                dir.writeUInt16LE(1, 4); dir.writeUInt16LE(32, 6);
+                dir.writeUInt32LE(pngBuffers[i].length, 8); dir.writeUInt32LE(offset, 12);
+                dirs.push(dir); offset += pngBuffers[i].length;
+              }
+              return Buffer.concat([header, ...dirs, ...pngBuffers]);
+            }
+            const png32 = renderLogoPNG(32), png48 = renderLogoPNG(48), png96 = renderLogoPNG(96), png180 = renderLogoPNG(180), png192 = renderLogoPNG(192);
+            fs.writeFileSync("public/favicon-32x32.png", png32);
+            fs.writeFileSync("public/favicon-48x48.png", png48);
+            fs.writeFileSync("public/favicon-96x96.png", png96);
+            fs.writeFileSync("public/apple-touch-icon.png", png180);
+            fs.writeFileSync("public/favicon-192x192.png", png192);
+            fs.writeFileSync("public/favicon.ico", createICO([png48, png32], [48, 32]));
+          '
           npx vite build --base=./
           cp dist/index.html dist/404.html
           touch dist/.nojekyll

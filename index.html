@@ -31,15 +31,14 @@
     />
     <meta name="googlebot" content="index, follow" />
     <link rel="canonical" href="https://testcraftai.online/" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="shortcut icon" href="/logo.svg" />
-    <link
-      id="dynamic-favicon"
-      rel="icon"
-      type="image/svg+xml"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='10' y1='10' x2='110' y2='110' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='%234f46e5'/%3E%3Cstop offset='50%25' stop-color='%236366f1'/%3E%3Cstop offset='100%25' stop-color='%237c3aed'/%3E%3C/linearGradient%3E%3ClinearGradient id='acc' x1='20' y1='20' x2='100' y2='100' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='%2338bdf8'/%3E%3Cstop offset='100%25' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='8' y='8' width='104' height='104' rx='28' fill='url(%23bg)'/%3E%3Cpath d='M34 38 C34 33.58 37.58 30 42 30 L78 30 C82.42 30 86 33.58 86 38 L86 42 C86 44.2 84.2 46 82 46 L67 46 L67 80 C67 84.42 63.42 88 59 88 L55 88 C50.58 88 47 84.42 47 80 L47 46 L38 46 C35.8 46 34 44.2 34 42 Z' fill='%23ffffff'/%3E%3Cpath d='M48 64 L58 74 L88 44' fill='none' stroke='url(%23acc)' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M84 22 C84 26 88 28 88 28 C88 28 84 30 84 34 C84 30 80 28 80 28 C80 28 84 26 84 22 Z' fill='%2338bdf8'/%3E%3Ccircle cx='84' cy='28' r='1.5' fill='%23ffffff'/%3E%3C/svg%3E"
-    />
-    <link rel="apple-touch-icon" href="/logo.svg" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="TestCraft AI" />
     <meta property="og:url" content="https://testcraftai.online/" />
@@ -52,7 +51,7 @@
       property="og:description"
       content="Create customizable online tests with MCQs, True/False, and AI-evaluated theory questions. Generate instant shareable student test links and track live graded performance."
     />
-    <meta property="og:image" content="https://testcraftai.online/logo.svg" />
+    <meta property="og:image" content="https://testcraftai.online/favicon-192x192.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
@@ -62,16 +61,31 @@
       name="twitter:description"
       content="Create customizable online tests with MCQs, True/False, and AI-evaluated theory questions. Generate instant shareable student test links and track live graded performance."
     />
-    <meta name="twitter:image" content="https://testcraftai.online/logo.svg" />
+    <meta name="twitter:image" content="https://testcraftai.online/favicon-192x192.png" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
           {
+            "@type": "Organization",
+            "@id": "https://testcraftai.online/#organization",
+            "name": "TestCraft AI",
+            "url": "https://testcraftai.online/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://testcraftai.online/favicon-192x192.png",
+              "width": 192,
+              "height": 192
+            }
+          },
+          {
             "@type": "WebSite",
             "@id": "https://testcraftai.online/#website",
             "url": "https://testcraftai.online/",
             "name": "TestCraft AI",
+            "publisher": {
+              "@id": "https://testcraftai.online/#organization"
+            },
             "alternateName": ["TestCraft", "testcraftai.online", "TestCraft AI Exam Maker"],
             "description": "Free online test maker and AI exam evaluator for teachers, schools, and educators."
           },
@@ -144,27 +158,6 @@
           window.location.replace(base + '/?test=' + encodeURIComponent(slug));
         }
       }
-      // Render crisp PNG favicon onto canvas so Chrome tab bar always shows the TestCraft AI logo
-      window.addEventListener('DOMContentLoaded', function() {
-        try {
-          var favLink = document.getElementById('dynamic-favicon');
-          if (!favLink) return;
-          var img = new Image();
-          img.onload = function() {
-            var canvas = document.createElement('canvas');
-            canvas.width = 64;
-            canvas.height = 64;
-            var ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(img, 0, 0, 64, 64);
-              var pngUrl = canvas.toDataURL('image/png');
-              favLink.type = 'image/png';
-              favLink.href = pngUrl;
-            }
-          };
-          img.src = favLink.href;
-        } catch (e) {}
-      });
     </script>
     <style>
       section[aria-labelledby="why-testcraft-heading"] {
