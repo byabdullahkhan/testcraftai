@@ -146,15 +146,16 @@ jobs:
               }
               return Buffer.concat([header, ...dirs, ...pngBuffers]);
             }
-            const png32 = renderLogoPNG(32), png48 = renderLogoPNG(48), png96 = renderLogoPNG(96), png180 = renderLogoPNG(180), png192 = renderLogoPNG(192);
+            const png32 = renderLogoPNG(32), png48 = renderLogoPNG(48), png96 = renderLogoPNG(96), png180 = renderLogoPNG(180), png192 = renderLogoPNG(192), png512 = renderLogoPNG(512);
             fs.writeFileSync("public/favicon-32x32.png", png32);
             fs.writeFileSync("public/favicon-48x48.png", png48);
             fs.writeFileSync("public/favicon-96x96.png", png96);
             fs.writeFileSync("public/apple-touch-icon.png", png180);
             fs.writeFileSync("public/favicon-192x192.png", png192);
+            fs.writeFileSync("public/favicon-512x512.png", png512);
             fs.writeFileSync("public/favicon.ico", createICO([png48, png32], [48, 32]));
           '
-          npx vite build --base=./
+          npx vite build --base=/
           cp dist/index.html dist/404.html
           touch dist/.nojekyll
           ls -la dist dist/assets

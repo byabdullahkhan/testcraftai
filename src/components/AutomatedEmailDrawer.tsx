@@ -11,6 +11,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { Logo } from './Logo';
 
 export const AutomatedEmailDrawer: React.FC = () => {
   const { 
@@ -60,9 +61,7 @@ export const AutomatedEmailDrawer: React.FC = () => {
         {/* Drawer Header */}
         <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
-              <Mail className="w-5 h-5" />
-            </div>
+            <Logo size="sm" />
             <div>
               <h3 className="font-extrabold text-slate-900 text-base font-display">
                 Automated Email Center

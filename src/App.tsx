@@ -5,6 +5,7 @@ import { PreviousProjects } from './components/PreviousProjects';
 import { TestTaker } from './components/TestTaker';
 import { TestResultReport } from './components/TestResultReport';
 import { Navbar } from './components/Navbar';
+import { Logo } from './components/Logo';
 import { AuthModal } from './components/AuthModal';
 import { AutomatedEmailDrawer } from './components/AutomatedEmailDrawer';
 import { UserProfileModal } from './components/UserProfileModal';
@@ -246,7 +247,11 @@ function AppContent() {
 
       {currentView === 'home' && (
         <footer className="py-6 text-center text-xs text-slate-400 border-t border-slate-200/70">
-          <p>Online Examination & Conceptual Evaluation System • Full Account Privacy & Isolation</p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 px-4">
+            <Logo size="xs" showText textClassName="text-xs" />
+            <span className="hidden sm:inline text-slate-300" aria-hidden="true">•</span>
+            <p>Online Examination & Conceptual Evaluation System • Full Account Privacy & Isolation</p>
+          </div>
         </footer>
       )}
     </div>
