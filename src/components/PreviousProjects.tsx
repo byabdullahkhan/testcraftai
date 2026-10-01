@@ -27,6 +27,7 @@ import { apiService } from '../services/apiService';
 import { subscribeToLiveSubmissions } from '../utils/cloudSync';
 import { useAuth } from '../context/AuthContext';
 import { downloadSubmissionAsImage } from '../utils/downloadReportImage';
+import { Logo } from './Logo';
 
 interface TestSummary {
   id: string;
@@ -349,9 +350,7 @@ export const PreviousProjects: React.FC<PreviousProjectsProps> = ({
           className="absolute inset-0 bg-white/75 backdrop-blur-[2px] rounded-3xl z-20 flex flex-col items-center justify-center p-6 text-center cursor-pointer select-none transition-all hover:bg-white/70"
         >
           <div className="p-6 rounded-3xl bg-white/95 border border-slate-200 shadow-2xl max-w-sm w-full mx-auto flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-xs">
-              <Sparkles className="w-6 h-6" />
-            </div>
+            <Logo size="lg" />
             <div>
               <h3 className="text-lg font-extrabold text-slate-900 font-display">
                 Sign In to View Projects

@@ -26,6 +26,7 @@ import { AutoExpandingTextarea } from './AutoExpandingTextarea';
 import { getStudentShareUrl } from '../utils/urlHelper';
 import { apiService } from '../services/apiService';
 import { useAuth } from '../context/AuthContext';
+import { Logo } from './Logo';
 
 interface TestCreatorProps {
   onTestCreated: (test: Test) => void;
@@ -387,8 +388,8 @@ export const TestCreator: React.FC<TestCreatorProps> = ({
     return (
       <div className="max-w-md mx-auto py-16 px-4 text-center">
         <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 shadow-xl">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-5 shadow-xs">
-            <Sparkles className="w-7 h-7" />
+          <div className="flex justify-center mb-5">
+            <Logo size="lg" />
           </div>
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-200 mb-3">
             Authentication Required

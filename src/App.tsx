@@ -245,15 +245,13 @@ function AppContent() {
       <UserProfileModal />
       <AutomatedEmailDrawer />
 
-      {currentView === 'home' && (
-        <footer className="py-6 text-center text-xs text-slate-400 border-t border-slate-200/70">
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 px-4">
-            <Logo size="xs" showText textClassName="text-xs" />
-            <span className="hidden sm:inline text-slate-300" aria-hidden="true">•</span>
-            <p>Online Examination & Conceptual Evaluation System • Full Account Privacy & Isolation</p>
-          </div>
-        </footer>
-      )}
+      <footer className="py-6 text-center text-xs text-slate-400 border-t border-slate-200/70">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 px-4">
+          <Logo size="xs" showText textClassName="text-xs" />
+          <span className="hidden sm:inline text-slate-300" aria-hidden="true">•</span>
+          <p>Online Examination & Conceptual Evaluation System • Full Account Privacy & Isolation</p>
+        </div>
+      </footer>
     </div>
   );
 }
