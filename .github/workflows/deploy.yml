@@ -71,7 +71,7 @@ jobs:
           node -e '
             const fs = require("fs");
             const zlib = require("zlib");
-            function renderLogoPNG(size) {
+            function renderLogoRGBA(size) {
               const buf = Buffer.alloc(size * size * 4, 0);
               const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
               const lerp = (a, b, t) => a + (b - a) * t;
@@ -88,9 +88,9 @@ jobs:
               for (let y = 0; y < size; y++) {
                 for (let x = 0; x < size; x++) {
                   const sx = ((x + 0.5) / size) * 120, sy = ((y + 0.5) / size) * 120, aa = 120 / size;
-                  const bgAlpha = clamp(0.5 - sdRoundRect(sx, sy, 60, 60, 52, 52, 28) / aa, 0, 1);
+                  const bgAlpha = clamp(0.5 - sdRoundRect(sx, sy, 60, 60, 56, 56, 26) / aa, 0, 1);
                   if (bgAlpha <= 0) continue;
-                  const tBg = clamp(((sx - 10) + (sy - 10)) / 200, 0, 1);
+                  const tBg = clamp(((sx - 4) + (sy - 4)) / 224, 0, 1);
                   let r = tBg < 0.5 ? lerp(0x4f, 0x63, tBg * 2) : lerp(0x63, 0x7c, (tBg - 0.5) * 2);
                   let g = tBg < 0.5 ? lerp(0x46, 0x66, tBg * 2) : lerp(0x66, 0x3a, (tBg - 0.5) * 2);
                   let b = tBg < 0.5 ? lerp(0xe5, 0xf1, tBg * 2) : lerp(0xf1, 0xed, (tBg - 0.5) * 2);
@@ -109,10 +109,13 @@ jobs:
                   buf[idx] = Math.round(r); buf[idx + 1] = Math.round(g); buf[idx + 2] = Math.round(b); buf[idx + 3] = Math.round(bgAlpha * 255);
                 }
               }
+              return buf;
+            }
+            function encodePNG(size, rgba) {
               const rawData = Buffer.alloc(size * (size * 4 + 1));
               for (let y = 0; y < size; y++) {
                 rawData[y * (size * 4 + 1)] = 0;
-                buf.copy(rawData, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
+                rgba.copy(rawData, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
               }
               const compressed = zlib.deflateSync(rawData, { level: 9 });
               const crc32 = (data) => {
@@ -133,27 +136,51 @@ jobs:
               const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(size, 0); ihdr.writeUInt32BE(size, 4); ihdr[8] = 8; ihdr[9] = 6;
               return Buffer.concat([sig, chunk("IHDR", ihdr), chunk("IDAT", compressed), chunk("IEND", Buffer.alloc(0))]);
             }
-            function createICO(pngBuffers, sizes) {
-              const count = pngBuffers.length, header = Buffer.alloc(6);
-              header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(count, 4);
-              const dirs = []; let offset = 6 + count * 16;
-              for (let i = 0; i < count; i++) {
-                const dir = Buffer.alloc(16), s = sizes[i];
-                dir[0] = s >= 256 ? 0 : s; dir[1] = s >= 256 ? 0 : s;
-                dir.writeUInt16LE(1, 4); dir.writeUInt16LE(32, 6);
-                dir.writeUInt32LE(pngBuffers[i].length, 8); dir.writeUInt32LE(offset, 12);
-                dirs.push(dir); offset += pngBuffers[i].length;
+            function createBMPFrame(size, rgba) {
+              const maskRowBytes = Math.ceil(size / 32) * 4;
+              const xorBytes = size * size * 4, andBytes = maskRowBytes * size;
+              const dibHeader = Buffer.alloc(40, 0);
+              dibHeader.writeUInt32LE(40, 0);
+              dibHeader.writeInt32LE(size, 4);
+              dibHeader.writeInt32LE(size * 2, 8);
+              dibHeader.writeUInt16LE(1, 12);
+              dibHeader.writeUInt16LE(32, 14);
+              dibHeader.writeUInt32LE(0, 16);
+              dibHeader.writeUInt32LE(xorBytes + andBytes, 20);
+              const xorBuf = Buffer.alloc(xorBytes), andBuf = Buffer.alloc(andBytes, 0);
+              for (let y = 0; y < size; y++) {
+                const srcY = size - 1 - y;
+                for (let x = 0; x < size; x++) {
+                  const srcIdx = (srcY * size + x) * 4, dstIdx = (y * size + x) * 4;
+                  const r = rgba[srcIdx], g = rgba[srcIdx + 1], b = rgba[srcIdx + 2], a = rgba[srcIdx + 3];
+                  xorBuf[dstIdx] = b; xorBuf[dstIdx + 1] = g; xorBuf[dstIdx + 2] = r; xorBuf[dstIdx + 3] = a;
+                  if (a < 128) {
+                    andBuf[y * maskRowBytes + (x >> 3)] |= (1 << (7 - (x & 7)));
+                  }
+                }
               }
-              return Buffer.concat([header, ...dirs, ...pngBuffers]);
+              return Buffer.concat([dibHeader, xorBuf, andBuf]);
             }
-            const png32 = renderLogoPNG(32), png48 = renderLogoPNG(48), png96 = renderLogoPNG(96), png180 = renderLogoPNG(180), png192 = renderLogoPNG(192), png512 = renderLogoPNG(512);
-            fs.writeFileSync("public/favicon-32x32.png", png32);
-            fs.writeFileSync("public/favicon-48x48.png", png48);
-            fs.writeFileSync("public/favicon-96x96.png", png96);
-            fs.writeFileSync("public/apple-touch-icon.png", png180);
-            fs.writeFileSync("public/favicon-192x192.png", png192);
-            fs.writeFileSync("public/favicon-512x512.png", png512);
-            fs.writeFileSync("public/favicon.ico", createICO([png48, png32], [48, 32]));
+            function createStandardICO(sizes) {
+              const frames = sizes.map(s => createBMPFrame(s, renderLogoRGBA(s)));
+              const header = Buffer.alloc(6);
+              header.writeUInt16LE(0, 0); header.writeUInt16LE(1, 2); header.writeUInt16LE(frames.length, 4);
+              const dirs = []; let offset = 6 + frames.length * 16;
+              for (let i = 0; i < frames.length; i++) {
+                const dir = Buffer.alloc(16, 0);
+                dir[0] = sizes[i]; dir[1] = sizes[i];
+                dir.writeUInt16LE(1, 4); dir.writeUInt16LE(32, 6);
+                dir.writeUInt32LE(frames[i].length, 8); dir.writeUInt32LE(offset, 12);
+                dirs.push(dir); offset += frames[i].length;
+              }
+              return Buffer.concat([header, ...dirs, ...frames]);
+            }
+            for (const s of [48, 96, 144, 180, 192, 512]) {
+              const png = encodePNG(s, renderLogoRGBA(s));
+              if (s === 180) fs.writeFileSync("public/apple-touch-icon.png", png);
+              else fs.writeFileSync("public/favicon-" + s + "x" + s + ".png", png);
+            }
+            fs.writeFileSync("public/favicon.ico", createStandardICO([48, 96]));
           '
           npx vite build --base=/
           cp dist/index.html dist/404.html
