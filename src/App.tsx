@@ -9,6 +9,7 @@ import { Logo } from './components/Logo';
 import { AuthModal } from './components/AuthModal';
 import { AutomatedEmailDrawer } from './components/AutomatedEmailDrawer';
 import { UserProfileModal } from './components/UserProfileModal';
+import { LegalTrustModal, LegalModalTab } from './components/LegalTrustModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Test, TestSubmission } from './types';
 import { apiService } from './services/apiService';
@@ -24,6 +25,8 @@ function AppContent() {
   const [currentSubmission, setCurrentSubmission] = useState<TestSubmission | null>(null);
   const [userCreatedTestIds, setUserCreatedTestIds] = useState<string[]>([]);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [legalModalOpen, setLegalModalOpen] = useState(false);
+  const [legalTab, setLegalTab] = useState<LegalModalTab>('privacy');
   const { user, openAuthModal } = useAuth();
 
   // Clean up any legacy previous projects from older storage versions once on mount
@@ -244,12 +247,63 @@ function AppContent() {
       <AuthModal />
       <UserProfileModal />
       <AutomatedEmailDrawer />
+      <LegalTrustModal
+        isOpen={legalModalOpen}
+        initialTab={legalTab}
+        onClose={() => setLegalModalOpen(false)}
+      />
 
-      <footer className="py-6 text-center text-xs text-slate-400 border-t border-slate-200/70">
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 px-4">
-          <Logo size="xs" showText textClassName="text-xs" />
-          <span className="hidden sm:inline text-slate-300" aria-hidden="true">•</span>
-          <p>Online Examination & Conceptual Evaluation System • Full Account Privacy & Isolation</p>
+      <footer className="py-6 px-4 border-t border-slate-200/80 bg-white/60 text-slate-500 text-xs">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-2.5">
+            <Logo size="xs" showText textClassName="text-xs" />
+            <span className="hidden sm:inline text-slate-300">•</span>
+            <span className="text-slate-600 font-medium">
+              Free Online Exam Maker &amp; AI Answer Evaluator for Teachers
+            </span>
+          </div>
+
+          <div className="flex items-center flex-wrap justify-center gap-3 sm:gap-4 font-semibold text-[11px] text-slate-600">
+            <button
+              onClick={() => {
+                setLegalTab('privacy');
+                setLegalModalOpen(true);
+              }}
+              className="hover:text-indigo-600 transition-colors cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <span className="text-slate-300">•</span>
+            <button
+              onClick={() => {
+                setLegalTab('terms');
+                setLegalModalOpen(true);
+              }}
+              className="hover:text-indigo-600 transition-colors cursor-pointer"
+            >
+              Terms of Service
+            </button>
+            <span className="text-slate-300">•</span>
+            <button
+              onClick={() => {
+                setLegalTab('security');
+                setLegalModalOpen(true);
+              }}
+              className="hover:text-indigo-600 transition-colors cursor-pointer"
+            >
+              Security &amp; Safety
+            </button>
+            <span className="text-slate-300">•</span>
+            <button
+              onClick={() => {
+                setLegalTab('about');
+                setLegalModalOpen(true);
+              }}
+              className="hover:text-indigo-600 transition-colors cursor-pointer"
+            >
+              About &amp; Contact
+            </button>
+          </div>
         </div>
       </footer>
     </div>
