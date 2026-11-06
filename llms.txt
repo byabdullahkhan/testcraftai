@@ -1,0 +1,54 @@
+# TestCraft AI
+
+> Free online examination platform and automated grading studio for teachers, educators, and schools. Create customizable exams with MCQs (including multi-select partial credit), True/False questions, and AI-evaluated subjective theory questions. Share instant short test links with students—no student login or account required.
+
+## Key Information
+- Canonical Website: https://testcraftai.online/
+- Full LLM Documentation: https://testcraftai.online/llms-full.txt
+- Primary Purpose: Educational assessment authoring, student exam delivery, automated objective grading, and conceptual AI subjective theory grading
+- Target Users: Teachers, professors, tutors, coaching institutes, schools, and academic trainers
+- Pricing: 100% Free (no credit card or subscription required)
+- Authentication: Optional Google Firebase Authentication for instructors; zero login required for students
+
+## Core Services & Capabilities
+
+### 1. AI Conceptual Theory Answer Evaluator
+- Evaluates written descriptive/subjective answers conceptually against teacher-provided reference model answers
+- Powered by Google Gemini AI with semantic synonym and conceptual depth analysis
+- Focuses on understanding: does not penalize students for using different wording, synonyms, or simpler phrasing as long as key concepts are communicated
+- Output metrics: Marks awarded, concept match percentage (0-100%), accuracy score (out of 10), conceptual verdict, identified strengths, missing points, and rubric notes
+
+### 2. Multiple Choice Questions (MCQ) Engine
+- Dynamic options count (2 to 6 options per question)
+- Supports single-correct and multiple-correct options
+- Configurable partial marking: Award half marks (50% partial credit) or strict zero marks for partially correct multi-select answers
+
+### 3. True / False Exam Creator
+- Rapid binary question authoring with automated instant verification and grading
+
+### 4. Zero-Login Student Exam Portal
+- Frictionless access: Students open the test link on any phone, tablet, or laptop, enter their name and roll number, and take the exam immediately
+- Single-attempt enforcement: Prevents duplicate submissions from the same student
+- Timed exams: Configurable countdown timer with automatic test submission upon timer expiry
+
+### 5. Real-Time Gradebook & Digital Report Cards
+- Instructor dashboard tracking live student submissions and score distributions
+- Question-by-question breakdown showing student answers, correct reference answers, marks, and AI evaluation feedback
+- Instant printable and downloadable student report cards
+
+### 6. Automated Teacher Email Center
+- Automated notifications dispatched directly to the instructor's verified email upon test publication and student submissions
+
+## URLs & Endpoints
+- Homepage & Student Portal: https://testcraftai.online/
+- Student Exam Link Pattern: https://testcraftai.online/?test={testId_or_slug}
+- Theory Grading API: POST https://testcraftai.online/api/evaluate-theory
+- Sitemap: https://testcraftai.online/sitemap.xml
+- Robots: https://testcraftai.online/robots.txt
+- Full LLM Documentation: https://testcraftai.online/llms-full.txt
+
+## Developer & Contact
+- Platform: TestCraft AI
+- Developer: Abdullah Khan
+- Support Email: byabdullahkhan@gmail.com
+- GitHub Repository: https://github.com/byabdullahkhan

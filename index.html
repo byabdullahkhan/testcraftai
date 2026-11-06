@@ -39,6 +39,8 @@
     <link rel="shortcut icon" href="https://testcraftai.online/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="https://testcraftai.online/apple-touch-icon.png" />
     <link rel="manifest" href="https://testcraftai.online/site.webmanifest" />
+    <link rel="alternate" type="text/markdown" href="https://testcraftai.online/llms.txt" title="LLMs.txt" />
+    <link rel="help" type="text/markdown" href="https://testcraftai.online/llms-full.txt" title="LLMs-Full.txt" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="TestCraft AI" />
     <meta property="og:url" content="https://testcraftai.online/" />
@@ -67,9 +69,10 @@
         "@context": "https://schema.org",
         "@graph": [
           {
-            "@type": "Organization",
+            "@type": ["Organization", "EducationalOrganization"],
             "@id": "https://testcraftai.online/#organization",
             "name": "TestCraft AI",
+            "legalName": "TestCraft AI Online",
             "url": "https://testcraftai.online/",
             "founder": {
               "@type": "Person",
@@ -79,16 +82,60 @@
             "contactPoint": {
               "@type": "ContactPoint",
               "email": "byabdullahkhan@gmail.com",
-              "contactType": "customer support"
+              "contactType": "customer support",
+              "url": "https://testcraftai.online/"
             },
             "sameAs": [
               "https://github.com/byabdullahkhan"
             ],
             "logo": {
               "@type": "ImageObject",
+              "@id": "https://testcraftai.online/#logo",
               "url": "https://testcraftai.online/favicon-192x192.png",
+              "contentUrl": "https://testcraftai.online/favicon-192x192.png",
+              "caption": "TestCraft AI Logo",
               "width": 192,
               "height": 192
+            },
+            "image": "https://testcraftai.online/favicon-512x512.png",
+            "description": "TestCraft AI is a free online test maker, MCQ builder, and AI conceptual theory answer evaluator for teachers, schools, coaching institutes, and educators.",
+            "knowsAbout": [
+              "Educational Technology",
+              "Online Examination Systems",
+              "Multiple Choice Question Assessment",
+              "AI Subjective Answer Evaluation",
+              "Automated Grading Algorithms",
+              "Student Performance Analytics"
+            ],
+            "hasOfferCatalog": {
+              "@type": "OfferCatalog",
+              "name": "TestCraft AI Educational Services",
+              "itemListElement": [
+                {
+                  "@type": "Offer",
+                  "itemOffered": { "@id": "https://testcraftai.online/#service-ai-theory-grading" }
+                },
+                {
+                  "@type": "Offer",
+                  "itemOffered": { "@id": "https://testcraftai.online/#service-mcq-builder" }
+                },
+                {
+                  "@type": "Offer",
+                  "itemOffered": { "@id": "https://testcraftai.online/#service-tf-builder" }
+                },
+                {
+                  "@type": "Offer",
+                  "itemOffered": { "@id": "https://testcraftai.online/#service-student-portal" }
+                },
+                {
+                  "@type": "Offer",
+                  "itemOffered": { "@id": "https://testcraftai.online/#service-analytics-reports" }
+                },
+                {
+                  "@type": "Offer",
+                  "itemOffered": { "@id": "https://testcraftai.online/#service-email-digest" }
+                }
+              ]
             }
           },
           {
@@ -125,6 +172,120 @@
               "Single-Attempt Enforcement & Timed Countdown Exams",
               "Real-Time Live Student Scoreboard & Downloadable Report Cards"
             ]
+          },
+          {
+            "@type": "Service",
+            "@id": "https://testcraftai.online/#service-ai-theory-grading",
+            "name": "AI Conceptual Theory Grading Service",
+            "serviceType": "Automated Subjective Assessment & Semantic Grading",
+            "provider": {
+              "@id": "https://testcraftai.online/#organization"
+            },
+            "description": "Automated conceptual evaluation of student written descriptive theory answers against instructor reference keys using Google Gemini AI, awarding partial credit, concept match percentages, and actionable rubric feedback.",
+            "audience": {
+              "@type": "Audience",
+              "audienceType": "Teachers, Professors, Tutors, Schools, Colleges"
+            },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          },
+          {
+            "@type": "Service",
+            "@id": "https://testcraftai.online/#service-mcq-builder",
+            "name": "Online MCQ & Objective Exam Builder Service",
+            "serviceType": "Multiple Choice Question Assessment Authoring",
+            "provider": {
+              "@id": "https://testcraftai.online/#organization"
+            },
+            "description": "Interactive multiple choice question creator supporting single-correct and multi-correct selection with configurable 50% partial marking options and zero-latency automated evaluation.",
+            "audience": {
+              "@type": "Audience",
+              "audienceType": "Educators, Tutors, and Academic Trainers"
+            },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          },
+          {
+            "@type": "Service",
+            "@id": "https://testcraftai.online/#service-tf-builder",
+            "name": "True / False Assessment Creation Service",
+            "serviceType": "Binary Objective Examination Tool",
+            "provider": {
+              "@id": "https://testcraftai.online/#organization"
+            },
+            "description": "Rapid binary true/false exam authoring tool with automated score calculation and instantaneous verification for classroom quizzes.",
+            "audience": {
+              "@type": "Audience",
+              "audienceType": "Teachers and Instructors"
+            },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          },
+          {
+            "@type": "Service",
+            "@id": "https://testcraftai.online/#service-student-portal",
+            "name": "Frictionless Student Exam Delivery & Testing Portal",
+            "serviceType": "Zero-Login Online Testing Gateway",
+            "provider": {
+              "@id": "https://testcraftai.online/#organization"
+            },
+            "description": "Responsive web-based examination portal allowing students to access tests via short shareable URLs on mobile, tablet, or PC without account registration, featuring single-attempt locking and countdown timers.",
+            "audience": {
+              "@type": "Audience",
+              "audienceType": "Students, Exam Candidates, Learners"
+            },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          },
+          {
+            "@type": "Service",
+            "@id": "https://testcraftai.online/#service-analytics-reports",
+            "name": "Real-Time Classroom Scoreboard & Digital Report Card Generator",
+            "serviceType": "Educational Analytics & Performance Reporting",
+            "provider": {
+              "@id": "https://testcraftai.online/#organization"
+            },
+            "description": "Live grading dashboard tracking class submissions in real-time, providing question-by-question diagnostic mark breakdowns, downloadable student report cards, and class performance metrics.",
+            "audience": {
+              "@type": "Audience",
+              "audienceType": "Teachers, School Administrators, Department Heads"
+            },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
+          },
+          {
+            "@type": "Service",
+            "@id": "https://testcraftai.online/#service-email-digest",
+            "name": "Automated Exam Digest & Teacher Notification Service",
+            "serviceType": "Automated Academic Notification Service",
+            "provider": {
+              "@id": "https://testcraftai.online/#organization"
+            },
+            "description": "Automated email notification service archiving test credentials, shareable links, and student submission summaries directly to instructor inboxes.",
+            "audience": {
+              "@type": "Audience",
+              "audienceType": "Instructors and Test Authors"
+            },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            }
           },
           {
             "@type": "FAQPage",

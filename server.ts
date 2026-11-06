@@ -1435,8 +1435,26 @@ app.get('/api/seo/keywords', (_req, res) => {
 
 app.get('/robots.txt', (_req, res) => {
   res.type('text/plain').send(
-    `User-agent: *\nAllow: /\n\nSitemap: https://testcraftai.online/sitemap.xml\n`
+    `User-agent: *\nAllow: /\nAllow: /llms.txt\nAllow: /llms-full.txt\n\nSitemap: https://testcraftai.online/sitemap.xml\n`
   );
+});
+
+app.get('/llms.txt', (_req, res) => {
+  const filePath = path.join(process.cwd(), 'public', 'llms.txt');
+  if (fs.existsSync(filePath)) {
+    res.type('text/plain; charset=utf-8').sendFile(filePath);
+  } else {
+    res.status(404).send('Not Found');
+  }
+});
+
+app.get('/llms-full.txt', (_req, res) => {
+  const filePath = path.join(process.cwd(), 'public', 'llms-full.txt');
+  if (fs.existsSync(filePath)) {
+    res.type('text/plain; charset=utf-8').sendFile(filePath);
+  } else {
+    res.status(404).send('Not Found');
+  }
 });
 
 app.get('/sitemap.xml', (_req, res) => {
